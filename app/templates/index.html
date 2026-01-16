@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configure Tailwind dark mode
+        tailwind.config = {
+            darkMode: 'class'
+        }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        [x-cloak] { display: none !important; }
+        .drag-over { border-color: #3b82f6 !important; background-color: #eff6ff !important; }
+    </style>
+    <script>
+        // Dark mode initialization (before page load)
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 transition-colors">
+        <div class="max-w-6xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <a href="/" class="flex items-center space-x-2">
+                    <i class="fas fa-microphone-alt text-2xl text-blue-600 dark:text-blue-400"></i>
+                    <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
+                </a>
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleDarkMode()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-moon text-gray-600 dark:text-gray-300 dark:hidden"></i>
+                        <i class="fas fa-sun text-yellow-400 hidden dark:inline"></i>
+                    </button>
+                    <a href="/storage" class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-hdd text-gray-600 dark:text-gray-300"></i>
+                        <span class="text-gray-700 dark:text-gray-200">Storage</span>
+                    </a>
+                    <a href="/keys" class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-key text-gray-600 dark:text-gray-300"></i>
+                        <span class="text-gray-700 dark:text-gray-200">API Keys</span>
+                        {% if key_status.active_keys > 0 %}
+                        <span class="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                            {{ key_status.active_keys }} active
+                        </span>
+                        {% else %}
+                        <span class="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
+                            No keys
+                        </span>
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto px-4 py-8">
+        <!-- Upload Section -->
+        <div x-data="uploadHandler()" class="mb-8">
+            <div 
+                @drop.prevent="handleDrop($event)"
+                @dragover.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                :class="isDragging ? 'drag-over' : ''"
+                class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center transition-all duration-200 bg-white dark:bg-gray-800/50"
+            >
+                <template x-if="!isUploading">
+                    <div>
+                        <i class="fas fa-cloud-upload-alt text-5xl text-gray-400 dark:text-gray-500 mb-4"></i>
+                        <h3 class="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Drop your audio file here
+                        </h3>
+                        <p class="text-gray-500 dark:text-gray-400 mb-4">
+                            Supports MP3, M4A, WAV, OGG, FLAC, WebM
+                        </p>
+                        <label class="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition">
+                            <i class="fas fa-folder-open mr-2"></i>
+                            Choose File
+                            <input type="file" class="hidden" accept="audio/*" @change="handleFile($event)">
+                        </label>
+                    </div>
+                </template>
+                
+                <template x-if="isUploading">
+                    <div class="py-4">
+                        <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+                        <p class="text-gray-700 font-medium" x-text="uploadStatus"></p>
+                        <!-- Upload Progress Bar -->
+                        <div x-show="uploadProgress > 0 && uploadProgress < 100" class="mt-4 w-full max-w-md mx-auto">
+                            <div class="bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                                <div class="bg-blue-600 dark:bg-blue-500 h-3 rounded-full transition-all duration-300"
+                                     :style="'width: ' + uploadProgress + '%'"></div>
+                            </div>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-2" x-text="uploadProgress + '% uploaded'"></p>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Optional metadata -->
+            <div x-show="selectedFile && !isUploading" x-cloak class="mt-4 bg-white dark:bg-gray-800/90 rounded-lg p-4 border dark:border-gray-700">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-file-audio text-2xl text-blue-500 dark:text-blue-400"></i>
+                        <div>
+                            <p class="font-medium text-gray-800 dark:text-gray-100" x-text="selectedFile?.name"></p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400" x-text="formatSize(selectedFile?.size)"></p>
+                        </div>
+                    </div>
+                    <button @click="selectedFile = null" class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-all duration-200">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title (optional)</label>
+                        <input type="text" x-model="title" placeholder="Meeting notes, Ideas, etc."
+                            class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tags (optional)</label>
+                        <input type="text" x-model="tags" placeholder="work, personal, ideas"
+                            class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500">
+                    </div>
+                </div>
+                
+                <!-- Compress Only Option -->
+                <div class="mb-4 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border dark:border-gray-700">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox" x-model="compressOnly" 
+                            class="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 bg-white dark:bg-gray-800">
+                        <span class="ml-3">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Compress Only</span>
+                            <span class="block text-xs text-gray-500 dark:text-gray-400">Just reduce file size (~85% smaller), no transcription</span>
+                        </span>
+                    </label>
+                </div>
+                
+                <button @click="upload()" 
+                    class="w-full py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200 flex items-center justify-center">
+                    <i class="fas fa-magic mr-2" x-show="!compressOnly"></i>
+                    <i class="fas fa-compress mr-2" x-show="compressOnly"></i>
+                    <span x-text="compressOnly ? 'Compress Audio' : 'Process Audio'"></span>
+                </button>
+            </div>
+
+            <!-- Error message -->
+            <div x-show="error" x-cloak class="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle text-red-500 dark:text-red-400 mr-2"></i>
+                    <p class="text-red-700 dark:text-red-400" x-text="error"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recordings List -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
+            <div class="px-6 py-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                    <i class="fas fa-history text-gray-400 dark:text-gray-500 mr-2"></i>
+                    Recent Recordings
+                </h2>
+            </div>
+            
+            {% if recordings %}
+            <div class="divide-y dark:divide-gray-700/50">
+                {% for recording in recordings %}
+                <div class="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all duration-200" 
+                     x-data="recordingItem({{ recording.id }}, '{{ recording.status }}', '{{ recording.processing_step or '' }}')" 
+                     x-init="startPolling()">
+                    
+                    <!-- Processing Pipeline View -->
+                    <template x-if="status === 'processing'">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-medium text-gray-800 dark:text-gray-100">{{ recording.title or recording.original_filename }}</h3>
+                                <span class="text-sm text-blue-600 font-medium">
+                                    <i class="fas fa-spinner fa-spin mr-1"></i> Processing
+                                </span>
+                            </div>
+                            
+                            <!-- Visual Pipeline -->
+                            <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                                <!-- Step 1: Upload -->
+                                <div class="flex flex-col items-center">
+                                    <div class="w-12 h-12 rounded-full flex items-center justify-center bg-green-100">
+                                        <i class="fas fa-check text-green-600"></i>
+                                    </div>
+                                    <span class="text-xs text-gray-600 dark:text-gray-300 mt-2">Uploaded</span>
+                                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ "%.1f"|format(recording.original_size_mb or 0) }} MB</span>
+                                </div>
+                                
+                                <!-- Arrow -->
+                                <div class="flex-1 h-0.5 bg-gray-300 mx-2 relative">
+                                    <div class="absolute inset-0 bg-green-500" 
+                                         :style="step === 'compressing' || step === 'transcribing' || step === 'analyzing' || step === 'done' ? 'width: 100%' : 'width: 0%'"></div>
+                                </div>
+                                
+                                <!-- Step 2: FFmpeg Compression -->
+                                <div class="flex flex-col items-center">
+                                    <div class="w-12 h-12 rounded-full flex items-center justify-center transition-all"
+                                         :class="{
+                                             'bg-blue-100': step === 'compressing',
+                                             'bg-green-100': step === 'transcribing' || step === 'analyzing' || step === 'done',
+                                             'bg-gray-100': step !== 'compressing' && step !== 'transcribing' && step !== 'analyzing' && step !== 'done'
+                                         }">
+                                        <i class="fas" 
+                                           :class="{
+                                               'fa-spinner fa-spin text-blue-600': step === 'compressing',
+                                               'fa-check text-green-600': step === 'transcribing' || step === 'analyzing' || step === 'done',
+                                               'fa-compress-alt text-gray-400': step !== 'compressing' && step !== 'transcribing' && step !== 'analyzing' && step !== 'done'
+                                           }"></i>
+                                    </div>
+                                    <span class="text-xs text-gray-600 dark:text-gray-300 mt-2">FFmpeg</span>
+                                    <template x-if="compressionData.compressed_size_mb">
+                                        <span class="text-xs text-green-600 font-medium" x-text="compressionData.compressed_size_mb + ' MB'"></span>
+                                    </template>
+                                    <template x-if="compressionData.compression_savings">
+                                        <span class="text-xs text-green-600" x-text="'-' + compressionData.compression_savings + '%'"></span>
+                                    </template>
+                                </div>
+                                
+                                <!-- Arrow -->
+                                <div class="flex-1 h-0.5 bg-gray-300 mx-2 relative">
+                                    <div class="absolute inset-0 bg-green-500 transition-all" 
+                                         :style="step === 'transcribing' || step === 'analyzing' || step === 'done' ? 'width: 100%' : 'width: 0%'"></div>
+                                </div>
+                                
+                                <!-- Step 3: Transcribe -->
+                                <div class="flex flex-col items-center">
+                                    <div class="w-12 h-12 rounded-full flex items-center justify-center transition-all"
+                                         :class="{
+                                             'bg-blue-100': step === 'transcribing',
+                                             'bg-green-100': step === 'analyzing' || step === 'done',
+                                             'bg-gray-100': step !== 'transcribing' && step !== 'analyzing' && step !== 'done'
+                                         }">
+                                        <i class="fas"
+                                           :class="{
+                                               'fa-spinner fa-spin text-blue-600': step === 'transcribing',
+                                               'fa-check text-green-600': step === 'analyzing' || step === 'done',
+                                               'fa-microphone text-gray-400': step !== 'transcribing' && step !== 'analyzing' && step !== 'done'
+                                           }"></i>
+                                    </div>
+                                    <span class="text-xs text-gray-600 dark:text-gray-300 mt-2">Transcribe</span>
+                                    <span class="text-xs text-gray-400 dark:text-gray-500">Gemini</span>
+                                </div>
+                                
+                                <!-- Arrow -->
+                                <div class="flex-1 h-0.5 bg-gray-300 mx-2 relative">
+                                    <div class="absolute inset-0 bg-green-500 transition-all" 
+                                         :style="step === 'analyzing' || step === 'done' ? 'width: 100%' : 'width: 0%'"></div>
+                                </div>
+                                
+                                <!-- Step 4: Analyze -->
+                                <div class="flex flex-col items-center">
+                                    <div class="w-12 h-12 rounded-full flex items-center justify-center transition-all"
+                                         :class="{
+                                             'bg-blue-100': step === 'analyzing',
+                                             'bg-green-100': step === 'done',
+                                             'bg-gray-100': step !== 'analyzing' && step !== 'done'
+                                         }">
+                                        <i class="fas"
+                                           :class="{
+                                               'fa-spinner fa-spin text-blue-600': step === 'analyzing',
+                                               'fa-check text-green-600': step === 'done',
+                                               'fa-brain text-gray-400': step !== 'analyzing' && step !== 'done'
+                                           }"></i>
+                                    </div>
+                                    <span class="text-xs text-gray-600 dark:text-gray-300 mt-2">Analyze</span>
+                                    <span class="text-xs text-gray-400 dark:text-gray-500">Breakdown</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Status Message -->
+                            <div x-show="processingMessage" class="mt-3 text-center">
+                                <p class="text-sm text-blue-600 font-medium" x-text="processingMessage"></p>
+                            </div>
+                            
+                            <!-- Queue Position Info -->
+                            <div x-show="queuePosition && queuePosition > 1" class="mt-2 text-center">
+                                <div class="inline-flex items-center px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 rounded-lg text-amber-700 dark:text-amber-300">
+                                    <i class="fas fa-hourglass-half mr-2"></i>
+                                    <span class="text-sm">
+                                        Queue position: <span class="font-bold" x-text="queuePosition"></span>
+                                        <template x-if="estimatedWait > 0">
+                                            <span class="ml-2 text-amber-600 dark:text-amber-400">
+                                                (~<span x-text="Math.ceil(estimatedWait / 60)"></span> min)
+                                            </span>
+                                        </template>
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <!-- API Key Capacity Info (when multiple keys) -->
+                            <div x-show="keyStatus && keyStatus.total_keys > 1" class="mt-2 text-center">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">
+                                    <span x-text="keyStatus?.remaining_capacity || 0"></span>/<span x-text="keyStatus?.total_capacity_per_minute || 0"></span> API capacity available
+                                </div>
+                            </div>
+                            
+                            <!-- Abort Button -->
+                            <div class="mt-3 text-center">
+                                <button @click="abortProcessing()" 
+                                        class="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 transition">
+                                    <i class="fas fa-stop-circle mr-1"></i>
+                                    Abort Processing
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Normal View (pending/completed/failed) -->
+                    <template x-if="status !== 'processing'">
+                        <a href="/recording/{{ recording.id }}" class="flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/30 -mx-6 px-6 py-3 transition-all duration-200 cursor-pointer rounded-lg">
+                            <div class="flex items-center space-x-4">
+                                <!-- Status Icon -->
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center"
+                                    :class="{
+                                        'bg-yellow-100': status === 'pending',
+                                        'bg-green-100': status === 'completed',
+                                        'bg-red-100': status === 'failed'
+                                    }">
+                                    <i class="fas"
+                                       :class="{
+                                           'fa-clock text-yellow-600': status === 'pending',
+                                           'fa-check text-green-600': status === 'completed',
+                                           'fa-times text-red-600': status === 'failed'
+                                       }"></i>
+                                </div>
+                                
+                                <!-- Info -->
+                                <div>
+                                    <div class="font-medium text-gray-800 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400">
+                                        {{ recording.title or recording.original_filename }}
+                                    </div>
+                                    <div class="flex items-center space-x-3 text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                        <span>
+                                            <i class="fas fa-file-audio mr-1"></i>
+                                            {{ recording.file_format | upper }}
+                                        </span>
+                                        {% if recording.original_size_mb %}
+                                        <span class="flex items-center">
+                                            <i class="fas fa-weight mr-1"></i>
+                                            {{ "%.1f"|format(recording.original_size_mb) }} MB
+                                            {% if recording.compressed_size_mb and recording.compressed_size_mb < recording.original_size_mb %}
+                                            <i class="fas fa-arrow-right mx-1 text-green-500"></i>
+                                            <span class="text-green-600 font-medium">{{ "%.1f"|format(recording.compressed_size_mb) }} MB</span>
+                                            <span class="text-green-600 text-xs ml-1">(-{{ "%.0f"|format((1 - recording.compressed_size_mb / recording.original_size_mb) * 100) }}%)</span>
+                                            {% endif %}
+                                        </span>
+                                        {% endif %}
+                                        {% if recording.duration_seconds %}
+                                        <span>
+                                            <i class="fas fa-clock mr-1"></i>
+                                            {{ (recording.duration_seconds / 60)|int }}:{{ "%02d"|format((recording.duration_seconds % 60)|int) }}
+                                        </span>
+                                        {% endif %}
+                                        {% if recording.recorded_at %}
+                                        <span title="Recorded">
+                                            <i class="fas fa-microphone mr-1"></i>
+                                            <span class="local-time" data-utc="{{ recording.recorded_at.isoformat() }}Z" data-format="short">{{ recording.recorded_at.strftime('%b %d, %I:%M %p') }}</span>
+                                        </span>
+                                        {% endif %}
+                                        <span title="Uploaded">
+                                            <i class="fas fa-upload mr-1"></i>
+                                            <span class="local-time" data-utc="{{ recording.created_at.isoformat() }}Z" data-format="short">{{ recording.created_at.strftime('%b %d, %I:%M %p') }}</span>
+                                        </span>
+                                    </div>
+                                    
+                                    <!-- Download buttons (only for completed) -->
+                                    <template x-if="status === 'completed'">
+                                        <div class="flex items-center space-x-2 mt-2">
+                                            {% if recording.breakdown %}
+                                            <a href="/recording/{{ recording.id }}/download/breakdown" 
+                                               onclick="event.stopPropagation()"
+                                               class="px-2 py-1 bg-blue-50 dark:bg-blue-900/80 text-blue-600 dark:text-blue-300 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-800/90 hover:scale-105 transition-all duration-200 flex items-center">
+                                                <i class="fas fa-download mr-1"></i>
+                                                Breakdown
+                                            </a>
+                                            {% endif %}
+                                            {% if recording.transcript %}
+                                            <a href="/recording/{{ recording.id }}/download/transcript" 
+                                               onclick="event.stopPropagation()"
+                                               class="px-2 py-1 bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 rounded text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600/70 hover:scale-105 transition-all duration-200 flex items-center">
+                                                <i class="fas fa-download mr-1"></i>
+                                                Transcript
+                                            </a>
+                                            {% endif %}
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            
+                            <!-- Status Badge (right side) -->
+                            <div class="flex items-center space-x-2">
+                                <template x-if="status === 'completed'">
+                                    <span class="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-sm font-medium">
+                                        <i class="fas fa-check mr-1"></i> Completed
+                                    </span>
+                                </template>
+                                <template x-if="status === 'failed'">
+                                    <span class="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-sm font-medium" :title="errorMessage">
+                                        <i class="fas fa-exclamation-triangle mr-1"></i> Failed
+                                    </span>
+                                </template>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                <i class="fas fa-inbox text-4xl mb-4"></i>
+                <p>No recordings yet. Upload your first voice memo to get started!</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+
+    <script>
+        function recordingItem(recordingId, initialStatus, initialStep) {
+            return {
+                status: initialStatus,
+                step: initialStep || 'starting',
+                compressionData: {},
+                processingMessage: '',
+                queuePosition: null,
+                estimatedWait: null,
+                keyStatus: null,
+                
+                startPolling() {
+                    if (this.status === 'pending' || this.status === 'processing') {
+                        this.poll();
+                    }
+                },
+                
+                async poll() {
+                    const interval = setInterval(async () => {
+                        try {
+                            const res = await fetch(`/recording/${recordingId}/status`);
+                            const data = await res.json();
+                            
+                            this.status = data.status;
+                            this.step = data.processing_step || 'starting';
+                            this.processingMessage = data.processing_message || '';
+                            
+                            // Queue info
+                            this.queuePosition = data.queue_position;
+                            this.estimatedWait = data.estimated_wait_seconds;
+                            this.keyStatus = data.key_status;
+                            
+                            // Update compression data
+                            if (data.compressed_size_mb) {
+                                this.compressionData = {
+                                    original_size_mb: data.original_size_mb,
+                                    compressed_size_mb: data.compressed_size_mb,
+                                    compression_ratio: data.compression_ratio,
+                                    compression_savings: data.compression_savings
+                                };
+                            }
+                            
+                            if (data.status === 'completed' || data.status === 'failed') {
+                                clearInterval(interval);
+                                setTimeout(() => location.reload(), 500);
+                            }
+                        } catch (err) {
+                            console.error('Polling error:', err);
+                        }
+                    }, 1500);
+                },
+                
+                async abortProcessing() {
+                    if (confirm('Are you sure you want to abort this processing?')) {
+                        try {
+                            await fetch(`/recording/${recordingId}/abort`, { method: 'POST' });
+                            setTimeout(() => location.reload(), 500);
+                        } catch (err) {
+                            console.error('Abort error:', err);
+                            alert('Failed to abort processing');
+                        }
+                    }
+                }
+            };
+        }
+
+        function uploadHandler() {
+            return {
+                isDragging: false,
+                selectedFile: null,
+                isUploading: false,
+                uploadStatus: 'Uploading...',
+                uploadProgress: 0,
+                title: '',
+                tags: '',
+                compressOnly: false,
+                error: null,
+
+                handleDrop(e) {
+                    this.isDragging = false;
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('audio/')) {
+                        this.selectedFile = file;
+                        this.error = null;
+                    } else {
+                        this.error = 'Please drop an audio file';
+                    }
+                },
+
+                handleFile(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        this.selectedFile = file;
+                        this.error = null;
+                    }
+                },
+
+                formatSize(bytes) {
+                    if (!bytes) return '';
+                    const mb = bytes / (1024 * 1024);
+                    return mb.toFixed(1) + ' MB';
+                },
+
+                async upload() {
+                    if (!this.selectedFile) return;
+
+                    this.isUploading = true;
+                    this.uploadStatus = 'Uploading...';
+                    this.uploadProgress = 0;
+                    this.error = null;
+
+                    const formData = new FormData();
+                    formData.append('file', this.selectedFile);
+                    if (this.title) formData.append('title', this.title);
+                    if (this.tags) formData.append('tags', this.tags);
+                    if (this.compressOnly) formData.append('compress_only', 'true');
+
+                    // Use XMLHttpRequest for upload progress tracking
+                    const xhr = new XMLHttpRequest();
+                    const isCompressOnly = this.compressOnly;
+                    
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            this.uploadProgress = Math.round((e.loaded / e.total) * 100);
+                            this.uploadStatus = `Uploading... ${this.uploadProgress}%`;
+                        }
+                    });
+                    
+                    xhr.addEventListener('load', () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            this.uploadStatus = isCompressOnly 
+                                ? 'Compressing... This should be quick.' 
+                                : 'Processing... This may take a few minutes.';
+                            this.uploadProgress = 100;
+                            setTimeout(() => location.reload(), 1000);
+                        } else {
+                            try {
+                                const data = JSON.parse(xhr.responseText);
+                                this.error = data.detail || 'Upload failed';
+                            } catch {
+                                this.error = 'Upload failed';
+                            }
+                            this.isUploading = false;
+                        }
+                    });
+                    
+                    xhr.addEventListener('error', () => {
+                        this.error = 'Network error during upload';
+                        this.isUploading = false;
+                    });
+                    
+                    xhr.open('POST', '/upload');
+                    xhr.send(formData);
+                }
+            };
+        }
+        
+        // Convert UTC timestamps to IST (Asia/Kolkata)
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.local-time').forEach(el => {
+                const utcString = el.dataset.utc;
+                if (!utcString) return;
+                
+                try {
+                    // Parse the UTC date
+                    const date = new Date(utcString);
+                    const format = el.dataset.format || 'short';
+                    
+                    // Convert to IST by adding 5 hours 30 minutes
+                    const istDate = new Date(date.getTime());
+                    
+                    if (format === 'short') {
+                        // Format: Jan 15, 4:37 PM
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'short', 
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(istDate);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${hour}:${minute} ${dayPeriod}`;
+                    } else if (format === 'long') {
+                        // Format: Jan 15, 2026 4:37 PM IST
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'short', 
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(istDate);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const year = parts.find(p => p.type === 'year').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${year} ${hour}:${minute} ${dayPeriod} IST`;
+                    } else if (format === 'full') {
+                        // Format: January 15, 2026 at 4:37 PM IST
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'long', 
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(istDate);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const year = parts.find(p => p.type === 'year').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${year} at ${hour}:${minute} ${dayPeriod} IST`;
+                    }
+                } catch (err) {
+                    console.error('Error converting timestamp:', err, utcString);
+                }
+            });
+        });
+        
+        // Dark mode toggle
+        function toggleDarkMode() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storage Management - Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configure Tailwind dark mode
+        tailwind.config = {
+            darkMode: 'class'
+        }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        // Dark mode initialization
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition-all duration-200">
+                        <i class="fas fa-arrow-left"></i>
+                        <span>Back to Dashboard</span>
+                    </a>
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    <div class="flex items-center space-x-2">
+                        <i class="fas fa-hdd text-2xl text-blue-600 dark:text-blue-400"></i>
+                        <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Storage Management</span>
+                    </div>
+                </div>
+                <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
+                    <i class="fas fa-moon dark:hidden text-lg"></i>
+                    <i class="fas fa-sun hidden dark:inline text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-8" x-data="storageManager()">
+        <!-- Storage Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- Total Disk Usage -->
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Storage Used</p>
+                        <p class="text-2xl font-bold text-gray-800 dark:text-gray-100">{{ storage_stats.total_disk_mb }} MB</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                        <i class="fas fa-hdd text-blue-600 dark:text-blue-400 text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    <div>Compressed: {{ storage_stats.compressed_disk_mb }} MB</div>
+                    <div>Uploads: {{ storage_stats.uploads_disk_mb }} MB</div>
+                    <div>Database: {{ storage_stats.db_size_mb }} MB</div>
+                </div>
+            </div>
+
+            <!-- Total Recordings -->
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Recordings</p>
+                        <p class="text-2xl font-bold text-gray-800 dark:text-gray-100">{{ storage_stats.total_recordings }}</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
+                        <i class="fas fa-file-audio text-green-600 dark:text-green-400 text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    {{ storage_stats.compressed_files_count }} compressed files
+                </div>
+            </div>
+
+            <!-- Space Saved -->
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Space Saved</p>
+                        <p class="text-2xl font-bold text-green-600 dark:text-green-400">{{ storage_stats.total_saved_mb }} MB</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
+                        <i class="fas fa-compress-alt text-green-600 dark:text-green-400 text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    {{ storage_stats.compression_ratio }}% compression
+                </div>
+            </div>
+
+            <!-- Orphaned Files -->
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Orphaned Uploads</p>
+                        <p class="text-2xl font-bold text-orange-600 dark:text-orange-400">{{ storage_stats.upload_files_count }}</p>
+                    </div>
+                    <div class="w-12 h-12 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-orange-600 dark:text-orange-400 text-xl"></i>
+                    </div>
+                </div>
+                {% if storage_stats.upload_files_count > 0 %}
+                <button @click="cleanupOrphaned()" 
+                        class="mt-3 text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 font-medium">
+                    <i class="fas fa-trash-alt mr-1"></i> Clean Up
+                </button>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Bulk Actions -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-4 mb-6" x-show="selectedIds.size > 0" x-cloak>
+            <div class="flex items-center justify-between">
+                <div>
+                    <span class="font-medium text-gray-800 dark:text-gray-100" x-text="selectedIds.size"></span>
+                    <span class="text-gray-600 dark:text-gray-400"> recording(s) selected</span>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button @click="selectedIds.clear()" 
+                            class="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">
+                        Clear Selection
+                    </button>
+                    <button @click="bulkDelete()" 
+                            class="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-700 dark:hover:bg-red-600">
+                        <i class="fas fa-trash mr-2"></i>
+                        Delete Selected
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recordings Table -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden">
+            <div class="px-6 py-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">All Recordings</h2>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-700 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">
+                        <tr>
+                            <th class="px-4 py-3">
+                                <input type="checkbox" 
+                                       @change="toggleAll($event.target.checked)"
+                                       class="rounded border-gray-300">
+                            </th>
+                            <th class="px-4 py-3">Filename</th>
+                            <th class="px-4 py-3">Format</th>
+                            <th class="px-4 py-3">Duration</th>
+                            <th class="px-4 py-3">Original Size</th>
+                            <th class="px-4 py-3">Compressed</th>
+                            <th class="px-4 py-3">Saved</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">API Key</th>
+                            <th class="px-4 py-3">Created</th>
+                            <th class="px-4 py-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y dark:divide-gray-700">
+                        {% for recording in recordings %}
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all duration-200" :class="{ 'bg-blue-50 dark:bg-blue-900/20': selectedIds.has({{ recording.id }}) }">
+                            <td class="px-4 py-3">
+                                <input type="checkbox" 
+                                       :checked="selectedIds.has({{ recording.id }})"
+                                       @change="toggleSelect({{ recording.id }})"
+                                       class="rounded border-gray-300 dark:border-gray-600">
+                            </td>
+                            <td class="px-4 py-3">
+                                <a href="/recording/{{ recording.id }}" class="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-all duration-200 font-medium">
+                                    {{ recording.title or recording.original_filename }}
+                                </a>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {{ recording.file_format | upper }}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {% if recording.duration_seconds %}
+                                {{ (recording.duration_seconds / 60)|int }}:{{ "%02d"|format((recording.duration_seconds % 60)|int) }}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {% if recording.original_size_mb %}
+                                {{ "%.1f"|format(recording.original_size_mb) }} MB
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {% if recording.compressed_size_mb %}
+                                {{ "%.1f"|format(recording.compressed_size_mb) }} MB
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {% if recording.original_size_mb and recording.compressed_size_mb %}
+                                <span class="text-green-600 dark:text-green-400 font-medium">
+                                    {{ "%.1f"|format(recording.original_size_mb - recording.compressed_size_mb) }} MB
+                                    ({{ "%.0f"|format((1 - recording.compressed_size_mb / recording.original_size_mb) * 100) }}%)
+                                </span>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3">
+                                {% if recording.status == 'completed' %}
+                                <span class="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded text-xs font-medium">
+                                    <i class="fas fa-check mr-1"></i> Completed
+                                </span>
+                                {% elif recording.status == 'failed' %}
+                                <span class="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300 rounded text-xs font-medium">
+                                    <i class="fas fa-times mr-1"></i> Failed
+                                </span>
+                                {% elif recording.status == 'processing' %}
+                                <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">
+                                    <i class="fas fa-spinner fa-spin mr-1"></i> Processing
+                                </span>
+                                {% else %}
+                                <span class="px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300 rounded text-xs font-medium">
+                                    <i class="fas fa-clock mr-1"></i> Pending
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                {% if recording.api_key_name %}
+                                <span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded text-xs">
+                                    {{ recording.api_key_name }}
+                                </span>
+                                {% else %}
+                                <span class="text-gray-400 dark:text-gray-500">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                <span class="local-time" data-utc="{{ recording.created_at.isoformat() }}Z" data-format="short">
+                                    {{ recording.created_at.strftime('%b %d, %H:%M') }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <button @click="deleteRecording({{ recording.id }})" 
+                                        class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:scale-110 transition-all duration-200 text-sm">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function storageManager() {
+            return {
+                selectedIds: new Set(),
+                
+                toggleSelect(id) {
+                    if (this.selectedIds.has(id)) {
+                        this.selectedIds.delete(id);
+                    } else {
+                        this.selectedIds.add(id);
+                    }
+                },
+                
+                toggleAll(checked) {
+                    if (checked) {
+                        {% for recording in recordings %}
+                        this.selectedIds.add({{ recording.id }});
+                        {% endfor %}
+                    } else {
+                        this.selectedIds.clear();
+                    }
+                },
+                
+                async bulkDelete() {
+                    if (!confirm(`Delete ${this.selectedIds.size} recording(s)? This cannot be undone.`)) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/storage/bulk-delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ recording_ids: Array.from(this.selectedIds) })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            alert(`Successfully deleted ${data.deleted_count} recording(s)`);
+                            location.reload();
+                        } else {
+                            alert(`Error: ${data.error}`);
+                        }
+                    } catch (err) {
+                        alert('Failed to delete recordings');
+                    }
+                },
+                
+                async deleteRecording(id) {
+                    if (!confirm('Delete this recording? This cannot be undone.')) {
+                        return;
+                    }
+                    
+                    try {
+                        await fetch(`/recording/${id}`, { method: 'DELETE' });
+                        location.reload();
+                    } catch (err) {
+                        alert('Failed to delete recording');
+                    }
+                },
+                
+                async cleanupOrphaned() {
+                    if (!confirm('Clean up orphaned upload files? This will delete files that don\'t have associated recordings.')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/storage/cleanup-orphaned', { method: 'POST' });
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            alert(`Cleaned up ${data.deleted_count} file(s), freed ${data.deleted_size_mb} MB`);
+                            location.reload();
+                        } else {
+                            alert(`Error: ${data.error}`);
+                        }
+                    } catch (err) {
+                        alert('Failed to cleanup orphaned files');
+                    }
+                }
+            };
+        }
+        
+        // Convert UTC timestamps to IST (Asia/Kolkata) - 12 hour format
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.local-time').forEach(el => {
+                const utcString = el.dataset.utc;
+                if (!utcString) return;
+                
+                try {
+                    const date = new Date(utcString);
+                    const options = { 
+                        timeZone: 'Asia/Kolkata',
+                        month: 'short', 
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                    };
+                    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(date);
+                    const month = parts.find(p => p.type === 'month').value;
+                    const day = parts.find(p => p.type === 'day').value;
+                    const hour = parts.find(p => p.type === 'hour').value;
+                    const minute = parts.find(p => p.type === 'minute').value;
+                    const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                    el.textContent = `${month} ${day}, ${hour}:${minute} ${dayPeriod}`;
+                } catch (err) {
+                    console.error('Error converting timestamp:', err);
+                }
+            });
+        });
+        
+        // Dark mode toggle
+        function toggleDarkMode() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+    </script>
+</body>
+</html>

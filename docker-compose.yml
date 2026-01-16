@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: voice-to-notes
+    ports:
+      - "9123:8000"
+    volumes:
+      # Persist database and uploads
+      - voice_notes_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/voice_notes.db
+      # Optionally set API key via environment (can also add in UI)
+      # - GEMINI_API_KEY=your-key-here
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  voice_notes_data:
+    driver: local
+
+# ============================================================================
+# Optional: PostgreSQL instead of SQLite (uncomment to use)
+# ============================================================================
+# services:
+#   app:
+#     build: .
+#     container_name: voice-to-notes
+#     ports:
+#       - "8000:8000"
+#     volumes:
+#       - voice_notes_uploads:/app/data/uploads
+#     environment:
+#       - DATABASE_URL=postgresql://voice:voice_password@db:5432/voice_notes
+#     depends_on:
+#       db:
+#         condition: service_healthy
+#     restart: unless-stopped
+#
+#   db:
+#     image: postgres:15-alpine
+#     container_name: voice-to-notes-db
+#     environment:
+#       - POSTGRES_USER=voice
+#       - POSTGRES_PASSWORD=voice_password
+#       - POSTGRES_DB=voice_notes
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U voice -d voice_notes"]
+#       interval: 5s
+#       timeout: 5s
+#       retries: 5
+#     restart: unless-stopped
+#
+# volumes:
+#   voice_notes_uploads:
+#   postgres_data:

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Keys - Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configure Tailwind dark mode
+        tailwind.config = {
+            darkMode: 'class'
+        }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        // Dark mode initialization
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <div class="max-w-4xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition-all duration-200">
+                        <i class="fas fa-arrow-left"></i>
+                        <span>Back</span>
+                    </a>
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    <a href="/" class="flex items-center space-x-2">
+                        <i class="fas fa-microphone-alt text-2xl text-blue-600 dark:text-blue-400"></i>
+                        <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
+                    </a>
+                </div>
+                <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
+                    <i class="fas fa-moon dark:hidden text-lg"></i>
+                    <i class="fas fa-sun hidden dark:inline text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto px-4 py-8" x-data="keyManager()">
+        <div class="mb-8">
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+                <i class="fas fa-key text-blue-600 dark:text-blue-400 mr-2"></i>
+                API Key Management
+            </h1>
+            <p class="text-gray-600 dark:text-gray-400">
+                Manage your Gemini API keys. Add multiple keys for automatic rotation when quotas are exhausted.
+            </p>
+        </div>
+
+        <!-- Status Overview -->
+        <div class="grid grid-cols-3 gap-4 mb-8">
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-gray-800 dark:text-gray-100">{{ status.total_keys }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Total Keys</div>
+            </div>
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-green-600 dark:text-green-400">{{ status.active_keys }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Active Keys</div>
+            </div>
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ status.exhausted_keys }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Exhausted Keys</div>
+            </div>
+        </div>
+
+        <!-- Add New Key -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6 mb-8">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
+                <i class="fas fa-plus-circle text-green-600 dark:text-green-400 mr-2"></i>
+                Add New API Key
+            </h2>
+            
+            <form @submit.prevent="addKey()">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+                        <input type="password" x-model="newKey" placeholder="AIza..." required
+                            class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name (optional)</label>
+                        <input type="text" x-model="newKeyName" placeholder="Personal, Work, etc."
+                            class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <a href="https://aistudio.google.com/apikey" target="_blank" 
+                       class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-all duration-200">
+                        <i class="fas fa-external-link-alt mr-1"></i>
+                        Get API key from AI Studio
+                    </a>
+                    <button type="submit" :disabled="!newKey"
+                        class="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-plus mr-2"></i>
+                        Add Key
+                    </button>
+                </div>
+            </form>
+            
+            <div x-show="error" x-cloak class="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+                <i class="fas fa-exclamation-circle mr-1"></i>
+                <span x-text="error"></span>
+            </div>
+            
+            <div x-show="success" x-cloak class="mt-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
+                <i class="fas fa-check-circle mr-1"></i>
+                <span x-text="success"></span>
+            </div>
+        </div>
+
+        <!-- Keys List -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700">
+            <div class="px-6 py-4 border-b dark:border-gray-700 flex items-center justify-between">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                    <i class="fas fa-list text-gray-400 dark:text-gray-500 mr-2"></i>
+                    Your API Keys
+                </h2>
+                {% if status.exhausted_keys > 0 %}
+                <button @click="resetAll()" 
+                        class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-all duration-200">
+                    <i class="fas fa-redo mr-1"></i>
+                    Reset All Exhausted
+                </button>
+                {% endif %}
+            </div>
+            
+            {% if keys %}
+            <div class="divide-y dark:divide-gray-700">
+                {% for key in keys %}
+                <div class="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all duration-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <!-- Status Indicator -->
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center
+                                {% if key.is_exhausted %}
+                                bg-red-100
+                                {% elif not key.is_active %}
+                                bg-gray-100
+                                {% else %}
+                                bg-green-100
+                                {% endif %}
+                            ">
+                                <i class="fas 
+                                    {% if key.is_exhausted %}
+                                    fa-exclamation text-red-600
+                                    {% elif not key.is_active %}
+                                    fa-pause text-gray-600
+                                    {% else %}
+                                    fa-check text-green-600
+                                    {% endif %}
+                                "></i>
+                            </div>
+                            
+                            <!-- Key Info -->
+                            <div>
+                                <div class="font-medium text-gray-800 dark:text-gray-100">
+                                    {{ key.name or 'Unnamed Key' }}
+                                </div>
+                                <div class="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                                    {{ key.key[:8] }}••••••••{{ key.key[-4:] }}
+                                </div>
+                                <div class="flex items-center space-x-3 text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                    <span>
+                                        <i class="fas fa-paper-plane mr-1"></i>
+                                        {{ key.total_requests }} requests
+                                    </span>
+                                    {% if key.last_used_at %}
+                                    <span>
+                                        <i class="fas fa-clock mr-1"></i>
+                                        Last used: {{ key.last_used_at.strftime('%b %d, %H:%M') }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                {% if key.is_exhausted and key.last_error %}
+                                <div class="text-xs text-red-500 mt-1 truncate max-w-md" title="{{ key.last_error }}">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                    {{ key.last_error[:60] }}...
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="flex items-center space-x-2">
+                            {% if key.is_exhausted %}
+                            <button @click="resetKey({{ key.id }})"
+                                    class="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900/80 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800/90 transition-all duration-200">
+                                <i class="fas fa-redo mr-1"></i>
+                                Reset
+                            </button>
+                            {% endif %}
+                            
+                            <button @click="toggleKey({{ key.id }})"
+                                    class="px-3 py-1.5 text-sm rounded-lg transition-all duration-200
+                                        {% if key.is_active %}
+                                        bg-gray-100 dark:bg-gray-700/60 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600/70
+                                        {% else %}
+                                        bg-green-100 dark:bg-green-900/80 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/90
+                                        {% endif %}
+                                    ">
+                                {% if key.is_active %}
+                                <i class="fas fa-pause mr-1"></i> Disable
+                                {% else %}
+                                <i class="fas fa-play mr-1"></i> Enable
+                                {% endif %}
+                            </button>
+                            
+                            <button @click="deleteKey({{ key.id }})"
+                                    class="px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="px-6 py-12 text-center text-gray-500">
+                <i class="fas fa-key text-4xl mb-4"></i>
+                <p>No API keys yet. Add your first key to get started!</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Instructions -->
+        <div class="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
+            <h3 class="font-semibold text-blue-800 mb-3">
+                <i class="fas fa-info-circle mr-2"></i>
+                How API Key Rotation Works
+            </h3>
+            <ul class="text-blue-700 space-y-2 text-sm">
+                <li>
+                    <i class="fas fa-check text-blue-500 mr-2"></i>
+                    Add multiple API keys from different Google accounts
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 mr-2"></i>
+                    When one key hits its quota limit, the system automatically switches to the next available key
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 mr-2"></i>
+                    Exhausted keys are marked in red - reset them when their quota refreshes (usually daily)
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 mr-2"></i>
+                    You can temporarily disable keys without deleting them
+                </li>
+            </ul>
+        </div>
+    </main>
+
+    <script>
+        function keyManager() {
+            return {
+                newKey: '',
+                newKeyName: '',
+                error: null,
+                success: null,
+
+                async addKey() {
+                    this.error = null;
+                    this.success = null;
+
+                    const formData = new FormData();
+                    formData.append('key', this.newKey);
+                    if (this.newKeyName) formData.append('name', this.newKeyName);
+
+                    try {
+                        const response = await fetch('/keys/add', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        if (!response.ok) {
+                            const data = await response.json();
+                            throw new Error(data.detail || 'Failed to add key');
+                        }
+
+                        this.success = 'API key added successfully!';
+                        this.newKey = '';
+                        this.newKeyName = '';
+                        
+                        setTimeout(() => location.reload(), 1000);
+
+                    } catch (err) {
+                        this.error = err.message;
+                    }
+                },
+
+                async toggleKey(keyId) {
+                    await fetch(`/keys/${keyId}/toggle`, { method: 'POST' });
+                    location.reload();
+                },
+
+                async resetKey(keyId) {
+                    await fetch(`/keys/${keyId}/reset`, { method: 'POST' });
+                    location.reload();
+                },
+
+                async resetAll() {
+                    await fetch('/keys/reset-all', { method: 'POST' });
+                    location.reload();
+                },
+
+                async deleteKey(keyId) {
+                    if (!confirm('Delete this API key?')) return;
+                    await fetch(`/keys/${keyId}`, { method: 'DELETE' });
+                    location.reload();
+                }
+            };
+        }        
+        // Dark mode toggle
+        function toggleDarkMode() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }    </script>
+</body>
+</html>

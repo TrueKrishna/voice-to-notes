@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ recording.title }} - Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configure Tailwind dark mode
+        tailwind.config = {
+            darkMode: 'class'
+        }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // Dark mode initialization
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .prose h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
+        .prose h2 { font-size: 1.25rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+        .dark .prose h2 { color: #e5e7eb; }
+        .prose h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+        .dark .prose h3 { color: #d1d5db; }
+        .prose p { margin-bottom: 0.75rem; line-height: 1.7; }
+        .prose ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .prose ol { list-style-type: decimal; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .prose li { margin-bottom: 0.25rem; }
+        .prose strong { font-weight: 600; }
+        .prose blockquote { border-left: 3px solid #3b82f6; padding-left: 1rem; font-style: italic; margin: 1rem 0; }
+        .dark .prose blockquote { color: #9ca3af; }
+        .prose hr { margin: 1.5rem 0; }
+        .dark .prose hr { border-color: #374151; }
+        .prose code { padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875rem; }
+        .dark .prose code { background-color: #374151; }
+        
+        /* Audio Player Styling */
+        audio {
+            width: 100%;
+            height: 48px;
+            border-radius: 8px;
+            outline: none;
+        }
+        audio::-webkit-media-controls-panel {
+            background-color: #f3f4f6;
+        }
+        .dark audio::-webkit-media-controls-panel {
+            background-color: #1f2937;
+        }
+        audio::-webkit-media-controls-play-button,
+        audio::-webkit-media-controls-mute-button {
+            border-radius: 50%;
+        }
+        audio::-webkit-media-controls-current-time-display,
+        audio::-webkit-media-controls-time-remaining-display {
+            color: #374151;
+        }
+        .dark audio::-webkit-media-controls-current-time-display,
+        .dark audio::-webkit-media-controls-time-remaining-display {
+            color: #d1d5db;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <div class="max-w-6xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition-all duration-200">
+                        <i class="fas fa-arrow-left"></i>
+                        <span>Back</span>
+                    </a>
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    <a href="/" class="flex items-center space-x-2">
+                        <i class="fas fa-microphone-alt text-2xl text-blue-600 dark:text-blue-400"></i>
+                        <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
+                    </a>
+                </div>
+                <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
+                    <i class="fas fa-moon dark:hidden text-lg"></i>
+                    <i class="fas fa-sun hidden dark:inline text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto px-4 py-8" x-data="{ activeTab: 'breakdown' }">
+        <!-- Header -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6 mb-6">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+                        {{ recording.title or recording.original_filename }}
+                    </h1>
+                    <div class="flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                        <span>
+                            <i class="fas fa-file-audio mr-1"></i>
+                            {{ recording.file_format | upper }}{% if recording.codec %} ({{ recording.codec }}){% endif %}
+                        </span>
+                        {% if recording.original_size_mb %}
+                        <span>
+                            <i class="fas fa-weight mr-1"></i>
+                            {{ "%.1f"|format(recording.original_size_mb) }} MB
+                            {% if recording.compressed_size_mb and recording.compressed_size_mb < recording.original_size_mb %}
+                            → {{ "%.1f"|format(recording.compressed_size_mb) }} MB 
+                            ({{ "%.0f"|format((1 - recording.compressed_size_mb / recording.original_size_mb) * 100) }}% smaller)
+                            {% endif %}
+                        </span>
+                        {% endif %}
+                        {% if recording.duration_seconds %}
+                        <span>
+                            <i class="fas fa-clock mr-1"></i>
+                            {{ (recording.duration_seconds / 60)|int }}:{{ "%02d"|format((recording.duration_seconds % 60)|int) }}
+                        </span>
+                        {% endif %}
+                        {% if recording.sample_rate %}
+                        <span title="Sample Rate">
+                            <i class="fas fa-wave-square mr-1"></i>
+                            {{ (recording.sample_rate / 1000)|int }} kHz{% if recording.channels %} • {{ 'Mono' if recording.channels == 1 else 'Stereo' if recording.channels == 2 else recording.channels ~ ' channels' }}{% endif %}
+                        </span>
+                        {% endif %}
+                        {% if recording.bit_rate %}
+                        <span title="Bit Rate">
+                            <i class="fas fa-tachometer-alt mr-1"></i>
+                            {{ recording.bit_rate }} kbps
+                        </span>
+                        {% endif %}
+                        {% if recording.recorded_at %}
+                        <span title="Recording Date">
+                            <i class="fas fa-microphone mr-1"></i>
+                            <span class="local-time" data-utc="{{ recording.recorded_at.isoformat() }}Z" data-format="long">{{ recording.recorded_at.strftime('%b %d, %Y %H:%M') }}</span>
+                        </span>
+                        {% endif %}
+                        <span title="Uploaded">
+                            <i class="fas fa-upload mr-1"></i>
+                            <span class="local-time" data-utc="{{ recording.created_at.isoformat() }}Z" data-format="full">{{ recording.created_at.strftime('%B %d, %Y at %H:%M') }}</span>
+                        </span>
+                        {% if recording.api_key_name %}
+                        <span title="API Key Used">
+                            <i class="fas fa-key mr-1"></i>
+                            {{ recording.api_key_name }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if recording.tags %}
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        {% for tag in recording.tags.split(',') %}
+                        <span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-xs">
+                            {{ tag.strip() }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- Action buttons -->
+                <div class="flex flex-col gap-2" x-data="{ showDeleteConfirm: false }">
+                    {% if recording.breakdown %}
+                    <a href="/recording/{{ recording.id }}/download/breakdown" 
+                       class="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg text-sm font-medium hover:bg-blue-700 dark:hover:bg-blue-600 hover:scale-105 transition-all duration-200 flex items-center justify-center">
+                        <i class="fas fa-download mr-2"></i>
+                        Download Breakdown
+                    </a>
+                    {% endif %}
+                    {% if recording.transcript %}
+                    <a href="/recording/{{ recording.id }}/download/transcript" 
+                       class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-105 transition-all duration-200 flex items-center justify-center">
+                        <i class="fas fa-download mr-2"></i>
+                        Download Transcript
+                    </a>
+                    {% endif %}
+                    {% if recording.compressed_file_path %}
+                    <a href="/recording/{{ recording.id }}/download/compressed" 
+                       class="px-4 py-2 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-lg text-sm font-medium hover:bg-green-200 dark:hover:bg-green-800 hover:scale-105 transition-all duration-200 flex items-center justify-center">
+                        <i class="fas fa-file-audio mr-2"></i>
+                        Download Audio
+                    </a>
+                    {% endif %}
+                    
+                    <!-- Delete Button -->
+                    <button @click="showDeleteConfirm = true" 
+                            class="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition flex items-center justify-center">
+                        <i class="fas fa-trash mr-2"></i>
+                        Delete Recording
+                    </button>
+                    
+                    <!-- Delete Confirmation Modal -->
+                    <div x-show="showDeleteConfirm" x-cloak 
+                         class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+                         @click.self="showDeleteConfirm = false">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-sm mx-4">
+                            <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Delete Recording?</h3>
+                            <p class="text-gray-600 dark:text-gray-300 mb-4">This will permanently delete the recording, transcript, breakdown, and all associated files. This action cannot be undone.</p>
+                            <div class="flex justify-end space-x-3">
+                                <button @click="showDeleteConfirm = false" 
+                                        class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">
+                                    Cancel
+                                </button>
+                                <button onclick="deleteRecording()" 
+                                        class="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-700 dark:hover:bg-red-600">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if recording.is_compress_only %}
+        <!-- Compress Only Result -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-6 text-center">
+            <div class="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-compress-alt text-3xl text-green-600 dark:text-green-400"></i>
+            </div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2">Compression Complete!</h2>
+            <p class="text-gray-600 dark:text-gray-300 mb-4">
+                File size reduced from {{ "%.1f"|format(recording.original_size_mb) }} MB to 
+                {{ "%.1f"|format(recording.compressed_size_mb) }} MB 
+                ({{ "%.0f"|format((1 - recording.compressed_size_mb / recording.original_size_mb) * 100) }}% smaller)
+            </p>
+            
+            <!-- Audio Player for Compress-Only -->
+            {% if recording.compressed_file_path %}
+            <div class="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 mb-4">
+                <div class="flex items-center justify-center mb-2">
+                    <i class="fas fa-play-circle text-blue-600 dark:text-blue-400 text-xl mr-2"></i>
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Audio Preview</h3>
+                </div>
+                <audio controls preload="metadata" class="w-full" style="max-width: 600px; margin: 0 auto;">
+                    <source src="/recording/{{ recording.id }}/audio/stream" type="audio/mpeg">
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Your browser doesn't support audio playback.</p>
+                </audio>
+            </div>
+            {% endif %}
+            
+            <a href="/recording/{{ recording.id }}/download/compressed" 
+               class="inline-flex items-center px-6 py-3 bg-green-600 dark:bg-green-700 text-white rounded-lg font-medium hover:bg-green-700 dark:hover:bg-green-600 transition">
+                <i class="fas fa-download mr-2"></i>
+                Download Compressed Audio
+            </a>
+        </div>
+        {% elif recording.status == 'completed' %}
+        
+        <!-- Audio Player -->
+        {% if recording.compressed_file_path %}
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6 mb-6">
+            <div class="flex items-center mb-4">
+                <div class="w-12 h-12 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center mr-4">
+                    <i class="fas fa-headphones text-xl text-blue-600 dark:text-blue-400"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Audio Playback</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Listen to your recording</p>
+                </div>
+            </div>
+            <audio controls preload="metadata" class="w-full" style="filter: brightness(0.95);">
+                <source src="/recording/{{ recording.id }}/audio/stream" type="audio/mpeg">
+                <p class="text-sm text-gray-500 dark:text-gray-400">Your browser doesn't support audio playback.</p>
+            </audio>
+        </div>
+        {% endif %}
+        
+        <!-- Tabs -->
+        <div class="flex space-x-1 mb-4 bg-gray-100 dark:bg-gray-800/60 rounded-lg p-1 w-fit">
+            <button @click="activeTab = 'breakdown'"
+                    :class="activeTab === 'breakdown' ? 'bg-white dark:bg-gray-700/80 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-700/40'"
+                    class="px-4 py-2 rounded-lg font-medium text-sm text-gray-700 dark:text-gray-200 transition-all duration-200">
+                <i class="fas fa-list-alt mr-2"></i>
+                Breakdown
+            </button>
+            <button @click="activeTab = 'transcript'"
+                    :class="activeTab === 'transcript' ? 'bg-white dark:bg-gray-700/80 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-700/40'"
+                    class="px-4 py-2 rounded-lg font-medium text-sm text-gray-700 dark:text-gray-200 transition-all duration-200">
+                <i class="fas fa-align-left mr-2"></i>
+                Raw Transcript
+            </button>
+        </div>
+
+        <!-- Content -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700">
+            <!-- Breakdown -->
+            <div x-show="activeTab === 'breakdown'" class="p-6">
+                {% if recording.breakdown %}
+                <div id="breakdown-content" class="prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200"></div>
+                {% else %}
+                <p class="text-gray-500 dark:text-gray-400">No breakdown available.</p>
+                {% endif %}
+            </div>
+
+            <!-- Transcript -->
+            <div x-show="activeTab === 'transcript'" x-cloak class="p-6">
+                {% if recording.transcript %}
+                <div id="transcript-content" class="prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200"></div>
+                {% else %}
+                <p class="text-gray-500 dark:text-gray-400">No transcript available.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% elif recording.status == 'processing' %}
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-12 text-center">
+            <i class="fas fa-spinner fa-spin text-5xl text-blue-600 dark:text-blue-400 mb-4"></i>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2">Processing your recording...</h2>
+            <p class="text-gray-500 dark:text-gray-400">This may take a few minutes depending on the length of the audio.</p>
+            <p class="text-sm text-gray-400 dark:text-gray-500 mt-4">This page will refresh automatically when done.</p>
+        </div>
+        <script>
+            setTimeout(() => location.reload(), 5000);
+        </script>
+
+        {% elif recording.status == 'failed' %}
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6">
+            <div class="flex items-start">
+                <i class="fas fa-exclamation-circle text-red-500 dark:text-red-400 text-xl mr-4 mt-0.5"></i>
+                <div>
+                    <h2 class="text-lg font-semibold text-red-800 dark:text-red-300 mb-2">Processing Failed</h2>
+                    <p class="text-red-700 dark:text-red-400 mb-4">{{ recording.error_message or 'An unknown error occurred.' }}</p>
+                    <button onclick="reprocess()" 
+                            class="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-700 dark:hover:bg-red-600 transition">
+                        <i class="fas fa-redo mr-2"></i>
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script>
+            async function reprocess() {
+                try {
+                    await fetch('/recording/{{ recording.id }}/reprocess', { method: 'POST' });
+                    location.reload();
+                } catch (err) {
+                    alert('Failed to reprocess. The original file may no longer be available.');
+                }
+            }
+        </script>
+
+        {% else %}
+        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-6 text-center">
+            <i class="fas fa-clock text-yellow-600 dark:text-yellow-400 text-4xl mb-4"></i>
+            <h2 class="text-lg font-semibold text-yellow-800 dark:text-yellow-300">Waiting to process...</h2>
+            <p class="text-yellow-700 dark:text-yellow-400">Your recording is in the queue.</p>
+        </div>
+        {% endif %}
+    </main>
+
+    <script>
+        // Render markdown content
+        document.addEventListener('DOMContentLoaded', function() {
+            const breakdownEl = document.getElementById('breakdown-content');
+            const transcriptEl = document.getElementById('transcript-content');
+            
+            if (breakdownEl) {
+                const breakdown = {{ recording.breakdown | tojson if recording.breakdown else '""' | safe }};
+                breakdownEl.innerHTML = marked.parse(breakdown);
+            }
+            
+            if (transcriptEl) {
+                const transcript = {{ recording.transcript | tojson if recording.transcript else '""' | safe }};
+                transcriptEl.innerHTML = marked.parse(transcript);
+            }
+            
+            // Convert UTC timestamps to IST (Asia/Kolkata) - 12 hour format
+            document.querySelectorAll('.local-time').forEach(el => {
+                const utcString = el.dataset.utc;
+                if (!utcString) return;
+                
+                try {
+                    const date = new Date(utcString);
+                    const format = el.dataset.format || 'short';
+                    
+                    if (format === 'short') {
+                        // Format: Jan 15, 4:37 PM
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'short', 
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(date);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${hour}:${minute} ${dayPeriod}`;
+                    } else if (format === 'long') {
+                        // Format: Jan 15, 2026 4:37 PM IST
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'short', 
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(date);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const year = parts.find(p => p.type === 'year').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${year} ${hour}:${minute} ${dayPeriod} IST`;
+                    } else if (format === 'full') {
+                        // Format: January 15, 2026 at 4:37 PM IST
+                        const options = { 
+                            timeZone: 'Asia/Kolkata',
+                            month: 'long', 
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        };
+                        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(date);
+                        const month = parts.find(p => p.type === 'month').value;
+                        const day = parts.find(p => p.type === 'day').value;
+                        const year = parts.find(p => p.type === 'year').value;
+                        const hour = parts.find(p => p.type === 'hour').value;
+                        const minute = parts.find(p => p.type === 'minute').value;
+                        const dayPeriod = parts.find(p => p.type === 'dayPeriod').value;
+                        el.textContent = `${month} ${day}, ${year} at ${hour}:${minute} ${dayPeriod} IST`;
+                    }
+                } catch (err) {
+                    console.error('Error converting timestamp:', err);
+                }
+            });
+        });
+
+        async function deleteRecording() {
+            try {
+                await fetch('/recording/{{ recording.id }}', { method: 'DELETE' });
+                window.location.href = '/';
+            } catch (err) {
+                alert('Failed to delete recording');
+            }
+        }
+        
+        // Dark mode toggle
+        function toggleDarkMode() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+    </script>
+</body>
+</html>
