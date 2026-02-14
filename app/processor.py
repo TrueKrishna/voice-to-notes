@@ -11,7 +11,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from sqlalchemy.orm import Session
 
 from .database import Recording
@@ -403,7 +404,8 @@ def compress_audio(input_path: Path) -> Tuple[Path, float, float]:
 # ============================================================================
 
 def transcribe_audio(
-    model,
+    client: genai.Client,
+    model_name: str,
     audio_path: Path,
     api_key_manager: APIKeyManager = None,
     current_key = None
@@ -413,24 +415,21 @@ def transcribe_audio(
     
     # Upload the audio file
     logger.debug(f"📤 Uploading audio to Gemini...")
-    audio_file = genai.upload_file(str(audio_path))
+    audio_file = client.files.upload(file=str(audio_path))
     logger.debug(f"✅ Audio uploaded successfully | File ID: {audio_file.name if hasattr(audio_file, 'name') else 'unknown'}")
     
     try:
         # Generate transcription
-        # gemini-2.5-flash-lite actually supports higher output limits
-        # Setting to a high value and letting it return what it can
-        # Timeout: 5 min is enough - broken pipe usually happens within seconds, not minutes
-        response = model.generate_content(
-            [TRANSCRIPTION_PROMPT, audio_file],
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[TRANSCRIPTION_PROMPT, audio_file],
+            config=types.GenerateContentConfig(
                 temperature=1.0,  # Google STRONGLY recommends 1.0 - anything lower causes looping!
                 top_p=0.95,  # Nucleus sampling for diversity
                 top_k=40,  # Top-k sampling for variety
                 max_output_tokens=65536,  # High limit for long recordings
                 candidate_count=1,
             ),
-            request_options={'timeout': 300}  # 5 minute timeout (broken pipe happens much faster)
         )
         
         # Validate response before accessing text
@@ -440,7 +439,7 @@ def transcribe_audio(
         # Check if content was blocked
         if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             block_reason = getattr(response.prompt_feedback, 'block_reason', None)
-            if block_reason and block_reason != 0:  # 0 = BLOCK_REASON_UNSPECIFIED
+            if block_reason and str(block_reason) not in ("BLOCK_REASON_UNSPECIFIED", "0", "None"):
                 raise Exception(f"Content blocked by safety filters: {block_reason}")
         
         # Check if we have candidates
@@ -450,19 +449,15 @@ def transcribe_audio(
         # Check finish reason
         candidate = response.candidates[0]
         finish_reason = getattr(candidate, 'finish_reason', None)
-        if finish_reason == 2:  # MAX_TOKENS
+        finish_str = str(finish_reason) if finish_reason else ""
+        if "MAX_TOKENS" in finish_str:
             logger.warning("⚠️  Transcription hit max token limit")
-            # For very long audio (2+ hours), provide a helpful message
             text = response.text if hasattr(response, 'text') else ""
             if text and text.strip():
-                logger.warning(f"⚠️  Warning: Transcription exceeded max tokens (8,192)")
-                print(f"    For 2+ hour recordings, consider:")
-                print(f"    1. Split audio into smaller segments (30-60 min each)")
-                print(f"    2. Use compress-only mode to get smaller files first")
-                return text + "\n\n---\n\n**[Note: Transcription was cut off due to length limit (8,192 tokens). For complete transcription of 2+ hour audio, please split into shorter segments or use a paid tier with higher limits.]**"
-            raise Exception("Transcription exceeded maximum length (8,192 tokens). For 2+ hour audio, please split into shorter segments.")
-        elif finish_reason and finish_reason not in [1, 0]:  # 1=STOP (normal), 0=UNSPECIFIED
-            # 3=SAFETY, 4=RECITATION, 5=OTHER
+                logger.warning(f"⚠️  Warning: Transcription exceeded max tokens")
+                return text + "\n\n---\n\n**[Note: Transcription was cut off due to length limit. For complete transcription of 2+ hour audio, please split into shorter segments or use a paid tier with higher limits.]**"
+            raise Exception("Transcription exceeded maximum length. For 2+ hour audio, please split into shorter segments.")
+        elif finish_reason and finish_str not in ("STOP", "FinishReason.STOP", "UNSPECIFIED", "FinishReason.UNSPECIFIED", "0", "1"):
             logger.error(f"❌ Generation stopped abnormally: finish_reason={finish_reason}")
             raise Exception(f"Generation stopped abnormally: finish_reason={finish_reason}")
         
@@ -486,13 +481,14 @@ def transcribe_audio(
     finally:
         # Clean up uploaded file
         try:
-            audio_file.delete()
+            client.files.delete(name=audio_file.name)
         except:
             pass
 
 
 def generate_breakdown(
-    model,
+    client: genai.Client,
+    model_name: str,
     transcript: str,
     api_key_manager: APIKeyManager = None,
     current_key = None
@@ -502,16 +498,16 @@ def generate_breakdown(
     prompt = BREAKDOWN_PROMPT.format(transcript=transcript)
     
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=1.0,  # Google strongly recommends keeping at 1.0
                 top_p=0.95,  # Nucleus sampling
                 top_k=40,  # Top-k sampling
                 max_output_tokens=65536,  # High limit for detailed breakdowns
                 candidate_count=1,
             ),
-            request_options={'timeout': 300}  # 5 minute timeout
         )
         
         # Validate response before accessing text
@@ -521,7 +517,7 @@ def generate_breakdown(
         # Check if content was blocked
         if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             block_reason = getattr(response.prompt_feedback, 'block_reason', None)
-            if block_reason and block_reason != 0:
+            if block_reason and str(block_reason) not in ("BLOCK_REASON_UNSPECIFIED", "0", "None"):
                 raise Exception(f"Content blocked by safety filters: {block_reason}")
         
         # Check if we have candidates
@@ -531,14 +527,15 @@ def generate_breakdown(
         # Check finish reason
         candidate = response.candidates[0]
         finish_reason = getattr(candidate, 'finish_reason', None)
-        if finish_reason == 2:  # MAX_TOKENS
+        finish_str = str(finish_reason) if finish_reason else ""
+        if "MAX_TOKENS" in finish_str:
             # Still return partial content with warning
             text = response.text if hasattr(response, 'text') else ""
             if text and text.strip():
                 print(f"⚠️  Warning: Breakdown exceeded max tokens, returning partial content")
                 return text + "\n\n[Note: Breakdown was cut off due to length.]"
             raise Exception("Breakdown exceeded maximum length (MAX_TOKENS) and no partial content available")
-        elif finish_reason and finish_reason not in [1, 0]:
+        elif finish_reason and finish_str not in ("STOP", "FinishReason.STOP", "UNSPECIFIED", "FinishReason.UNSPECIFIED", "0", "1"):
             raise Exception(f"Generation stopped abnormally: finish_reason={finish_reason}")
         
         # Try to get text
@@ -710,7 +707,7 @@ class AudioProcessor:
                 recording.processing_message = "Uploading audio to Gemini..."
                 self.db.commit()
                 
-                model, current_key = self.key_manager.get_model()
+                client, model_name, current_key = self.key_manager.get_model()
                 
                 # Track which API key is being used
                 recording.api_key_id = current_key.id
@@ -719,7 +716,7 @@ class AudioProcessor:
                 self.db.commit()
                 logger.info(f"🔑 Using API key: {current_key.name} | Attempt {attempt + 1}/{self.MAX_RETRIES}")
                 
-                result = transcribe_audio(model, audio_path, self.key_manager, current_key)
+                result = transcribe_audio(client, model_name, audio_path, self.key_manager, current_key)
                 
                 # Mark successful use
                 self.key_manager.mark_key_used(current_key, success=True)
@@ -772,16 +769,16 @@ class AudioProcessor:
                 self.db.commit()
                 
                 # Use gemini-3.0-flash for breakdown
-                model, current_key = self.key_manager.get_model()
+                client, model_name, current_key = self.key_manager.get_model()
                 
                 # Update which key is being used
                 recording.api_key_id = current_key.id
                 recording.api_key_name = current_key.name
-                recording.processing_message = f"Generating structured breakdown with Gemini 3.0 Flash (using key: {current_key.name})"
+                recording.processing_message = f"Generating structured breakdown with Gemini (using key: {current_key.name})"
                 self.db.commit()
-                logger.info(f"📊 Using gemini-3.0-flash for breakdown | Key: {current_key.name}")
+                logger.info(f"📣 Using {model_name} for breakdown | Key: {current_key.name}")
                 
-                result = generate_breakdown(model, transcript, self.key_manager, current_key)
+                result = generate_breakdown(client, model_name, transcript, self.key_manager, current_key)
                 
                 # Mark successful use
                 self.key_manager.mark_key_used(current_key, success=True)

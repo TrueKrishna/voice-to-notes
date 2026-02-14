@@ -17,9 +17,17 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from .database import init_db, get_db, Recording, APIKey
+from .database import init_db, get_db, Recording, APIKey, Settings, get_setting, set_setting, get_all_settings
 from .api_keys import APIKeyManager
 from .processor import AudioProcessor, SUPPORTED_FORMATS
+
+# Import shared modules for model configs
+try:
+    from shared.api_keys import AVAILABLE_MODELS, DEFAULT_MODEL
+except ImportError:
+    # Fallback if shared module not available
+    AVAILABLE_MODELS = []
+    DEFAULT_MODEL = "gemini-2.0-flash"
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -112,12 +120,23 @@ async def home(request: Request, db: Session = Depends(get_db)):
     recordings = db.query(Recording).order_by(Recording.created_at.desc()).limit(50).all()
     key_manager = APIKeyManager(db)
     key_status = key_manager.get_status()
-    logger.debug(f"\ud83d\udcca Loaded {len(recordings)} recordings | API Keys: {key_status['total_keys']} total, {key_status['active_keys']} active")
+    
+    # Get V2 watcher data for unified view
+    system_status = _get_system_status()
+    v2_recordings = _read_registry(limit=50)
+    v2_stats = _get_registry_stats()
+    watcher_config = _get_watcher_config()
+    
+    logger.debug(f"📊 Loaded {len(recordings)} V1 recordings, {len(v2_recordings)} V2 recordings")
     
     return templates.TemplateResponse("index.html", {
         "request": request,
         "recordings": recordings,
-        "key_status": key_status
+        "key_status": key_status,
+        "system_status": system_status,
+        "v2_recordings": v2_recordings,
+        "v2_stats": v2_stats,
+        "watcher_config": watcher_config,
     })
 
 
@@ -606,3 +625,454 @@ async def bulk_delete_recordings(
 # ============================================================================
 # API KEY MANAGEMENT
 # ============================================================================
+
+
+# ============================================================================
+# SETTINGS / ENGINE CONFIGURATION
+# ============================================================================
+
+# Settings keys that the UI manages → stored in Settings table
+SETTINGS_KEYS = [
+    "LOCAL_SYNC_AUDIO_DIR",
+    "OBSIDIAN_VAULT_DIR",
+    "OBSIDIAN_NOTE_SUBDIR",
+    "PROCESSING_MODE",
+    "GEMINI_MODEL",
+    "STABILITY_SECONDS",
+    "SCAN_INTERVAL",
+    "AUDIO_BITRATE",
+]
+
+# Defaults matching engine/config.py
+SETTINGS_DEFAULTS = {
+    "LOCAL_SYNC_AUDIO_DIR": "",
+    "OBSIDIAN_VAULT_DIR": "",
+    "OBSIDIAN_NOTE_SUBDIR": "VoiceNotes",
+    "PROCESSING_MODE": "personal_note",
+    "GEMINI_MODEL": DEFAULT_MODEL,  # Uses shared default
+    "STABILITY_SECONDS": "10",
+    "SCAN_INTERVAL": "5",
+    "AUDIO_BITRATE": "48k",
+}
+
+PROCESSING_MODES = [
+    ("personal_note", "Personal Note"),
+    ("idea", "Idea"),
+    ("meeting", "Meeting"),
+    ("reflection", "Reflection"),
+    ("task_dump", "Task Dump"),
+]
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, db: Session = Depends(get_db)):
+    """Engine settings page."""
+    current = {}
+    for key in SETTINGS_KEYS:
+        current[key] = get_setting(db, key, SETTINGS_DEFAULTS.get(key, ""))
+
+    # Get watcher status (check if registry DB exists and has data)
+    watcher_stats = None
+    registry_path = Path(os.environ.get("REGISTRY_DB_PATH", "./data/engine/registry.db"))
+    if registry_path.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(registry_path))
+            cursor = conn.execute(
+                "SELECT COUNT(*), "
+                "SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), "
+                "MAX(processed_at) "
+                "FROM processed_files"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            watcher_stats = {
+                "total": row[0] or 0,
+                "success": row[1] or 0,
+                "failed": row[2] or 0,
+                "last_processed": row[3] or "Never",
+            }
+        except Exception:
+            pass
+
+    # Get available models for dropdown
+    models_list = [(m.id, f"{m.display_name} - {m.description}") for m in AVAILABLE_MODELS] if AVAILABLE_MODELS else [
+        ("gemini-2.0-flash", "Gemini 2.0 Flash - Fast and efficient"),
+        ("gemini-1.5-flash", "Gemini 1.5 Flash - Stable and reliable"),
+        ("gemini-1.5-pro", "Gemini 1.5 Pro - More capable but slower"),
+    ]
+    
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "settings": current,
+        "modes": PROCESSING_MODES,
+        "models": models_list,
+        "watcher_stats": watcher_stats,
+    })
+
+
+@app.post("/settings/save")
+async def save_settings(request: Request, db: Session = Depends(get_db)):
+    """Save engine settings to the database."""
+    form = await request.form()
+    saved = []
+    for key in SETTINGS_KEYS:
+        value = form.get(key, "").strip()
+        if value or key in ("LOCAL_SYNC_AUDIO_DIR", "OBSIDIAN_VAULT_DIR"):
+            set_setting(db, key, value)
+            saved.append(key)
+
+    return {"success": True, "saved": saved}
+
+
+@app.get("/settings/browse")
+async def browse_directories(path: str = "/data/gdrive", db: Session = Depends(get_db)):
+    """List subdirectories under a given path for the folder picker.
+
+    Restricted to /data/gdrive (the Docker bind mount root) for security.
+    """
+    base = Path("/data/gdrive")
+    target = Path(path).resolve()
+
+    # Security: only allow browsing under the bind mount root
+    try:
+        target.relative_to(base.resolve())
+    except ValueError:
+        # Allow browsing the base itself
+        if target != base.resolve():
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    if not target.exists():
+        return {"path": str(target), "dirs": [], "exists": False}
+
+    dirs = []
+    try:
+        for entry in sorted(target.iterdir()):
+            if entry.is_dir() and not entry.name.startswith("."):
+                dirs.append(entry.name)
+    except PermissionError:
+        pass
+
+    return {
+        "path": str(target),
+        "dirs": dirs,
+        "exists": True,
+        "parent": str(target.parent) if target != base else None,
+    }
+
+
+# ============================================================================
+# ACTIVITY / WATCHER MONITORING
+# ============================================================================
+
+def _get_registry_path() -> Path:
+    """Get the engine registry database path."""
+    return Path(os.environ.get("REGISTRY_DB_PATH", "./data/engine/registry.db"))
+
+
+def _read_registry(limit: int = 50) -> list[dict]:
+    """Read recent entries from the engine registry."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT filename, mode, title, note_path, duration_seconds,
+                   processed_at, success, error, file_size
+            FROM processed_files
+            ORDER BY processed_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Failed to read registry: {e}")
+        return []
+
+
+def _get_registry_stats() -> dict:
+    """Get processing statistics from the registry."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        return {"total": 0, "success": 0, "failed": 0, "last_processed": None}
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        cursor = conn.execute(
+            "SELECT COUNT(*), "
+            "SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), "
+            "MAX(processed_at) "
+            "FROM processed_files"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return {
+            "total": row[0] or 0,
+            "success": row[1] or 0,
+            "failed": row[2] or 0,
+            "last_processed": row[3],
+        }
+    except Exception:
+        return {"total": 0, "success": 0, "failed": 0, "last_processed": None}
+
+
+def _get_watcher_config() -> dict:
+    """Get the current watcher configuration from DB settings."""
+    from .database import SessionLocal
+    db = SessionLocal()
+    try:
+        return {
+            "audio_input": get_setting(db, "LOCAL_SYNC_AUDIO_DIR", "Not configured"),
+            "obsidian_vault": get_setting(db, "OBSIDIAN_VAULT_DIR", "Not configured"),
+            "obsidian_subdir": get_setting(db, "OBSIDIAN_NOTE_SUBDIR", "VoiceNotes"),
+            "mode": get_setting(db, "PROCESSING_MODE", "personal_note"),
+        }
+    finally:
+        db.close()
+
+
+@app.get("/activity", response_class=HTMLResponse)
+async def activity_page(request: Request, db: Session = Depends(get_db)):
+    """Live activity / watcher monitoring page."""
+    key_manager = APIKeyManager(db)
+    key_status = key_manager.get_status()
+    stats = _get_registry_stats()
+    recent = _read_registry(limit=50)
+    config = _get_watcher_config()
+    system_status = _get_system_status()
+    failed_files = _get_failed_files()
+    
+    return templates.TemplateResponse("activity.html", {
+        "request": request,
+        "key_status": key_status,
+        "stats": stats,
+        "recent": recent,
+        "config": config,
+        "system_status": system_status,
+        "failed_files": failed_files,
+    })
+
+
+@app.get("/api/activity")
+async def activity_api(limit: int = 20):
+    """API endpoint for polling activity updates."""
+    stats = _get_registry_stats()
+    recent = _read_registry(limit=limit)
+    config = _get_watcher_config()
+    system_status = _get_system_status()
+    failed_files = _get_failed_files()
+    return {
+        "stats": stats,
+        "recent": recent,
+        "config": config,
+        "system_status": system_status,
+        "failed_files": failed_files,
+    }
+
+
+def _get_system_status() -> dict:
+    """Get the current watcher system status."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        return {
+            "state": "not_started",
+            "current_file": None,
+            "current_step": None,
+            "last_scan_at": None,
+            "scan_count": 0,
+            "files_in_queue": 0,
+            "updated_at": None,
+        }
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM watcher_status WHERE id = 1").fetchone()
+        conn.close()
+        if row:
+            return dict(row)
+        return {
+            "state": "unknown",
+            "current_file": None,
+            "current_step": None,
+            "last_scan_at": None,
+            "scan_count": 0,
+            "files_in_queue": 0,
+            "updated_at": None,
+        }
+    except Exception as e:
+        logger.debug(f"Could not read watcher status: {e}")
+        return {"state": "unknown", "error": str(e)}
+
+
+def _get_failed_files() -> list[dict]:
+    """Get failed files with retry status."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    
+    MAX_RETRIES = 5
+    RETRY_BACKOFF_MINUTES = [1, 5, 15, 60, 240]
+    
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT filename, file_hash, error, retry_count, last_retry_at, skipped
+            FROM processed_files
+            WHERE success = 0
+            ORDER BY last_retry_at DESC
+            """
+        ).fetchall()
+        conn.close()
+        
+        result = []
+        for row in rows:
+            d = dict(row)
+            retry_count = d.get('retry_count') or 0
+            skipped = d.get('skipped') or 0
+            last_retry_at = d.get('last_retry_at')
+            
+            if skipped:
+                d['next_retry'] = None
+                d['status'] = 'skipped'
+            elif retry_count >= MAX_RETRIES:
+                d['next_retry'] = None
+                d['status'] = 'max_retries'
+            elif last_retry_at and retry_count > 0:
+                backoff_idx = min(retry_count - 1, len(RETRY_BACKOFF_MINUTES) - 1)
+                backoff_mins = RETRY_BACKOFF_MINUTES[backoff_idx]
+                last = datetime.fromisoformat(last_retry_at)
+                next_retry = last + timedelta(minutes=backoff_mins)
+                d['next_retry'] = next_retry.isoformat()
+                d['status'] = 'waiting' if datetime.utcnow() < next_retry else 'ready'
+            else:
+                d['next_retry'] = datetime.utcnow().isoformat()
+                d['status'] = 'ready'
+            result.append(d)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to read failed files: {e}")
+        return []
+
+
+def _get_v2_stats() -> dict:
+    """Get V2 watcher statistics."""
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        return {"total": 0, "success": 0, "failed": 0}
+    try:
+        import sqlite3
+        conn = sqlite3.connect(registry_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM processed_files")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM processed_files WHERE success = 1")
+        success = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM processed_files WHERE success = 0")
+        failed = cursor.fetchone()[0]
+        conn.close()
+        return {"total": total, "success": success, "failed": failed}
+    except Exception as e:
+        logger.error(f"Failed to get V2 stats: {e}")
+        return {"total": 0, "success": 0, "failed": 0}
+
+
+@app.get("/api/system-status")
+async def get_system_status():
+    """Get system status for homepage polling."""
+    return {
+        "system_status": _get_system_status(),
+        "v2_stats": _get_v2_stats()
+    }
+
+
+@app.post("/api/skip-file/{file_hash}")
+async def skip_file(file_hash: str):
+    """Skip a failed file (won't be retried)."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Registry not found")
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        conn.execute("UPDATE processed_files SET skipped = 1 WHERE file_hash = ?", (file_hash,))
+        conn.commit()
+        conn.close()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/unskip-file/{file_hash}")
+async def unskip_file(file_hash: str):
+    """Unskip a file (will be retried)."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Registry not found")
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        conn.execute(
+            "UPDATE processed_files SET skipped = 0, retry_count = 0 WHERE file_hash = ?",
+            (file_hash,)
+        )
+        conn.commit()
+        conn.close()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/clear-failed")
+async def clear_failed():
+    """Reset all failed files for retry (without deleting their history)."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Registry not found")
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        count = conn.execute("SELECT COUNT(*) FROM processed_files WHERE success = 0").fetchone()[0]
+        # Reset retry state instead of deleting — files will be retried on next scan
+        conn.execute("""
+            UPDATE processed_files 
+            SET retry_count = 0, last_retry_at = NULL, skipped = 0, error = NULL
+            WHERE success = 0
+        """)
+        conn.commit()
+        conn.close()
+        return {"success": True, "reset_count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/skip-all-failed")
+async def skip_all_failed():
+    """Skip all failed files."""
+    import sqlite3
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Registry not found")
+    try:
+        conn = sqlite3.connect(str(registry_path))
+        cursor = conn.execute(
+            "UPDATE processed_files SET skipped = 1 WHERE success = 0 AND skipped = 0"
+        )
+        count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return {"success": True, "skipped_count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -40,10 +40,18 @@
                         <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
                     </a>
                 </div>
-                <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
-                    <i class="fas fa-moon dark:hidden text-lg"></i>
-                    <i class="fas fa-sun hidden dark:inline text-lg"></i>
-                </button>
+                <div class="flex items-center space-x-3">
+                    <a href="/activity" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition" title="Activity">
+                        <i class="fas fa-wave-square text-lg"></i>
+                    </a>
+                    <a href="/settings" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition" title="Settings">
+                        <i class="fas fa-cog text-lg"></i>
+                    </a>
+                    <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
+                        <i class="fas fa-moon dark:hidden text-lg"></i>
+                        <i class="fas fa-sun hidden dark:inline text-lg"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </nav>

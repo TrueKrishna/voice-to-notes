@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <div class="max-w-4xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition-all duration-200">
+                        <i class="fas fa-arrow-left"></i>
+                        <span>Back</span>
+                    </a>
+                    <span class="text-gray-300 dark:text-gray-600">|</span>
+                    <a href="/" class="flex items-center space-x-2">
+                        <i class="fas fa-microphone-alt text-2xl text-blue-600 dark:text-blue-400"></i>
+                        <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
+                    </a>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <a href="/activity" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition" title="Activity">
+                        <i class="fas fa-wave-square text-lg"></i>
+                    </a>
+                    <button onclick="toggleDarkMode()" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition">
+                        <i class="fas fa-moon dark:hidden text-lg"></i>
+                        <i class="fas fa-sun hidden dark:inline text-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto px-4 py-8" x-data="settingsManager()">
+        <div class="mb-8">
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+                <i class="fas fa-cog text-blue-600 dark:text-blue-400 mr-2"></i>
+                Engine Settings
+            </h1>
+            <p class="text-gray-600 dark:text-gray-400">
+                Configure the V2 watcher engine. Changes are picked up automatically — no restart needed.
+            </p>
+        </div>
+
+        {% if watcher_stats %}
+        <!-- Watcher Status -->
+        <div class="grid grid-cols-4 gap-4 mb-8">
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-gray-800 dark:text-gray-100">{{ watcher_stats.total }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Total Processed</div>
+            </div>
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-green-600 dark:text-green-400">{{ watcher_stats.success }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Successful</div>
+            </div>
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ watcher_stats.failed }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Failed</div>
+            </div>
+            <div class="bg-white dark:bg-gray-800/90 rounded-xl p-4 border dark:border-gray-700 shadow-sm">
+                <div class="text-xs font-mono text-gray-800 dark:text-gray-100 mt-1">{{ watcher_stats.last_processed }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">Last Processed</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Folder Configuration -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6 mb-8">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
+                <i class="fas fa-folder-open text-yellow-500 mr-2"></i>
+                Folder Configuration
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Select the Google Drive folders that the watcher should monitor and write to.
+                Browse the mounted drive to pick directories.
+            </p>
+
+            <!-- Audio Input Directory -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Audio Input Directory
+                    <span class="text-red-500">*</span>
+                </label>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                    Where your voice recorder saves audio files (synced via Google Drive)
+                </p>
+                <div class="flex space-x-2">
+                    <input type="text" x-model="settings.LOCAL_SYNC_AUDIO_DIR" readonly
+                        placeholder="Click Browse to select..."
+                        class="flex-1 px-3 py-2 border dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm">
+                    <button @click="openBrowser('LOCAL_SYNC_AUDIO_DIR')" type="button"
+                        class="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200">
+                        <i class="fas fa-folder-open mr-1"></i> Browse
+                    </button>
+                </div>
+            </div>
+
+            <!-- Obsidian Vault Directory -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Obsidian Vault Directory
+                    <span class="text-red-500">*</span>
+                </label>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                    Root of your Obsidian vault (also synced via Google Drive)
+                </p>
+                <div class="flex space-x-2">
+                    <input type="text" x-model="settings.OBSIDIAN_VAULT_DIR" readonly
+                        placeholder="Click Browse to select..."
+                        class="flex-1 px-3 py-2 border dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-sm">
+                    <button @click="openBrowser('OBSIDIAN_VAULT_DIR')" type="button"
+                        class="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200">
+                        <i class="fas fa-folder-open mr-1"></i> Browse
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Folder Browser Modal -->
+        <div x-show="browserOpen" x-cloak
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+             @keydown.escape.window="browserOpen = false">
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border dark:border-gray-700 w-full max-w-lg mx-4"
+                 @click.away="browserOpen = false">
+                <div class="px-6 py-4 border-b dark:border-gray-700 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        <i class="fas fa-folder-tree text-yellow-500 mr-2"></i>
+                        Select Folder
+                    </h3>
+                    <button @click="browserOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="px-6 py-2 bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-700">
+                    <div class="font-mono text-sm text-gray-600 dark:text-gray-400 truncate" x-text="browserPath"></div>
+                </div>
+
+                <div class="max-h-80 overflow-y-auto">
+                    <!-- Parent directory -->
+                    <button x-show="browserParent"
+                            @click="browseTo(browserParent)"
+                            class="w-full px-6 py-3 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition text-left border-b dark:border-gray-700">
+                        <i class="fas fa-level-up-alt text-gray-400"></i>
+                        <span class="text-gray-600 dark:text-gray-300">..</span>
+                    </button>
+
+                    <!-- Subdirectories -->
+                    <template x-for="dir in browserDirs" :key="dir">
+                        <button @click="browseTo(browserPath + '/' + dir)"
+                                class="w-full px-6 py-3 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition text-left border-b dark:border-gray-700/50">
+                            <i class="fas fa-folder text-yellow-500"></i>
+                            <span class="text-gray-800 dark:text-gray-100" x-text="dir"></span>
+                        </button>
+                    </template>
+
+                    <div x-show="browserDirs.length === 0 && !browserLoading"
+                         class="px-6 py-8 text-center text-gray-400 dark:text-gray-500">
+                        <i class="fas fa-folder text-3xl mb-2"></i>
+                        <p>No subdirectories</p>
+                    </div>
+
+                    <div x-show="browserLoading"
+                         class="px-6 py-8 text-center text-gray-400 dark:text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-2xl"></i>
+                    </div>
+
+                    <div x-show="browserError" x-cloak
+                         class="px-6 py-4 text-red-500 dark:text-red-400 text-sm">
+                        <i class="fas fa-exclamation-circle mr-1"></i>
+                        <span x-text="browserError"></span>
+                    </div>
+                </div>
+
+                <div class="px-6 py-4 border-t dark:border-gray-700 flex items-center justify-between">
+                    <div class="text-sm text-gray-500 dark:text-gray-400">
+                        Select the current folder or navigate deeper
+                    </div>
+                    <div class="flex space-x-2">
+                        <button @click="browserOpen = false"
+                                class="px-4 py-2 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                            Cancel
+                        </button>
+                        <button @click="selectCurrentFolder()"
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition">
+                            <i class="fas fa-check mr-1"></i>
+                            Select This Folder
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Engine Settings -->
+        <div class="bg-white dark:bg-gray-800/90 rounded-xl shadow-sm border dark:border-gray-700 p-6 mb-8">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">
+                <i class="fas fa-sliders-h text-purple-500 mr-2"></i>
+                Engine Configuration
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Note Subfolder -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Obsidian Note Subfolder
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        Subfolder within the vault for voice notes
+                    </p>
+                    <input type="text" x-model="settings.OBSIDIAN_NOTE_SUBDIR"
+                        placeholder="VoiceNotes"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                </div>
+
+                <!-- Default Processing Mode -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Default Processing Mode
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        Used when audio isn't in a mode-specific subfolder
+                    </p>
+                    <select x-model="settings.PROCESSING_MODE"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                        {% for value, label in modes %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Gemini Model -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Gemini Model
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        AI model for transcription and structuring
+                    </p>
+                    <select x-model="settings.GEMINI_MODEL"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                        {% for value, label in models %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Audio Bitrate -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Audio Compression Bitrate
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        Lower = smaller files, higher = better quality
+                    </p>
+                    <select x-model="settings.AUDIO_BITRATE"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                        <option value="32k">32 kbps (smallest)</option>
+                        <option value="48k">48 kbps (recommended)</option>
+                        <option value="64k">64 kbps</option>
+                        <option value="96k">96 kbps (best quality)</option>
+                    </select>
+                </div>
+
+                <!-- Stability Seconds -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        File Stability Wait (seconds)
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        Wait for file size to stop changing before processing
+                    </p>
+                    <input type="number" x-model="settings.STABILITY_SECONDS" min="3" max="120"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                </div>
+
+                <!-- Scan Interval -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Scan Interval (seconds)
+                    </label>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                        How often to check for new audio files
+                    </p>
+                    <input type="number" x-model="settings.SCAN_INTERVAL" min="2" max="60"
+                        class="w-full px-3 py-2 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="mt-8 flex items-center justify-between">
+                <div>
+                    <span x-show="saveSuccess" x-cloak x-transition
+                          class="text-green-600 dark:text-green-400 text-sm">
+                        <i class="fas fa-check-circle mr-1"></i>
+                        Settings saved! Watcher will pick them up on next scan.
+                    </span>
+                    <span x-show="saveError" x-cloak x-transition
+                          class="text-red-600 dark:text-red-400 text-sm">
+                        <i class="fas fa-exclamation-circle mr-1"></i>
+                        <span x-text="saveError"></span>
+                    </span>
+                </div>
+                <button @click="saveSettings()" :disabled="saving"
+                    class="px-6 py-2.5 bg-blue-600 dark:bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200 disabled:opacity-50">
+                    <i class="fas fa-save mr-2"></i>
+                    <span x-text="saving ? 'Saving...' : 'Save Settings'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- How It Works -->
+        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6">
+            <h3 class="font-semibold text-blue-800 dark:text-blue-300 mb-3">
+                <i class="fas fa-info-circle mr-2"></i>
+                How the Watcher Engine Works
+            </h3>
+            <ul class="text-blue-700 dark:text-blue-400 space-y-2 text-sm">
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    The watcher scans the Audio Input Directory for new audio files every few seconds
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    Files are processed once stable (fully synced from Google Drive)
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    Each audio file is compressed, transcribed via Gemini AI, and structured into a markdown note
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    Notes are saved to <strong>Obsidian Vault / Subfolder / YYYY / MM /</strong> with YAML frontmatter
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    Put audio in subfolders named <strong>meetings</strong>, <strong>ideas</strong>, <strong>reflections</strong>, or <strong>tasks</strong> to auto-detect mode
+                </li>
+                <li>
+                    <i class="fas fa-check text-blue-500 dark:text-blue-600 mr-2"></i>
+                    Settings changes are picked up automatically — no need to restart the watcher
+                </li>
+            </ul>
+        </div>
+    </main>
+
+    <script>
+        function settingsManager() {
+            return {
+                settings: {
+                    LOCAL_SYNC_AUDIO_DIR: '{{ settings.LOCAL_SYNC_AUDIO_DIR }}',
+                    OBSIDIAN_VAULT_DIR: '{{ settings.OBSIDIAN_VAULT_DIR }}',
+                    OBSIDIAN_NOTE_SUBDIR: '{{ settings.OBSIDIAN_NOTE_SUBDIR }}',
+                    PROCESSING_MODE: '{{ settings.PROCESSING_MODE }}',
+                    GEMINI_MODEL: '{{ settings.GEMINI_MODEL }}',
+                    STABILITY_SECONDS: '{{ settings.STABILITY_SECONDS }}',
+                    SCAN_INTERVAL: '{{ settings.SCAN_INTERVAL }}',
+                    AUDIO_BITRATE: '{{ settings.AUDIO_BITRATE }}',
+                },
+                saving: false,
+                saveSuccess: false,
+                saveError: null,
+
+                // Folder browser state
+                browserOpen: false,
+                browserPath: '/data/gdrive',
+                browserDirs: [],
+                browserParent: null,
+                browserLoading: false,
+                browserError: null,
+                browserTarget: null,  // which setting field to populate
+
+                async saveSettings() {
+                    this.saving = true;
+                    this.saveSuccess = false;
+                    this.saveError = null;
+
+                    const formData = new FormData();
+                    for (const [key, value] of Object.entries(this.settings)) {
+                        formData.append(key, value);
+                    }
+
+                    try {
+                        const resp = await fetch('/settings/save', { method: 'POST', body: formData });
+                        if (!resp.ok) {
+                            const data = await resp.json();
+                            throw new Error(data.detail || 'Save failed');
+                        }
+                        this.saveSuccess = true;
+                        setTimeout(() => this.saveSuccess = false, 5000);
+                    } catch (err) {
+                        this.saveError = err.message;
+                    } finally {
+                        this.saving = false;
+                    }
+                },
+
+                openBrowser(targetField) {
+                    this.browserTarget = targetField;
+                    this.browserPath = '/data/gdrive';
+                    this.browserOpen = true;
+                    this.browseTo('/data/gdrive');
+                },
+
+                async browseTo(path) {
+                    this.browserLoading = true;
+                    this.browserError = null;
+                    this.browserDirs = [];
+
+                    try {
+                        const resp = await fetch(`/settings/browse?path=${encodeURIComponent(path)}`);
+                        const data = await resp.json();
+
+                        if (!data.exists) {
+                            this.browserError = 'Directory does not exist. Is Google Drive mounted?';
+                            this.browserPath = path;
+                            return;
+                        }
+
+                        this.browserPath = data.path;
+                        this.browserDirs = data.dirs;
+                        this.browserParent = data.parent;
+                    } catch (err) {
+                        this.browserError = err.message;
+                    } finally {
+                        this.browserLoading = false;
+                    }
+                },
+
+                selectCurrentFolder() {
+                    if (this.browserTarget) {
+                        this.settings[this.browserTarget] = this.browserPath;
+                    }
+                    this.browserOpen = false;
+                }
+            };
+        }
+
+        function toggleDarkMode() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+    </script>
+</body>
+</html>

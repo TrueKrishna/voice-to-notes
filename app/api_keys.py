@@ -11,7 +11,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-import google.generativeai as genai
+from google import genai
 
 from .database import APIKey
 
@@ -36,7 +36,8 @@ class APIKeyManager:
     def __init__(self, db: Session):
         self.db = db
         self._current_key: Optional[APIKey] = None
-        self._model = None
+        self._client: Optional[genai.Client] = None
+        self._model_name: Optional[str] = None
     
     def add_key(self, key: str, name: str = None) -> APIKey:
         """Add a new API key to the pool."""
@@ -164,9 +165,9 @@ class APIKeyManager:
         api_key.last_error = error_message
         self.db.commit()
         
-        # Clear current model so we get a new key next time
+        # Clear current client so we get a new key next time
         self._current_key = None
-        self._model = None
+        self._client = None
     
     def mark_key_used(self, api_key: APIKey, success: bool = True):
         """Update usage statistics for a key and track rate limiting."""
@@ -248,18 +249,18 @@ class APIKeyManager:
         Using gemini-3-flash-preview for both transcription and breakdown (5 RPM, 250K TPM).
         """
         # If model name changed, clear cache
-        if self._model and hasattr(self, '_model_name') and self._model_name != model_name:
-            self._model = None
+        if self._client and self._model_name and self._model_name != model_name:
+            self._client = None
         
-        # If we already have a working model with same name, return it
-        if self._model and self._current_key and hasattr(self, '_model_name') and self._model_name == model_name:
+        # If we already have a working client with same model, return it
+        if self._client and self._current_key and self._model_name == model_name:
             # Check if current key still has capacity
             remaining = self._get_remaining_capacity(self._current_key, datetime.utcnow())
             if remaining > 0:
-                return self._model, self._current_key
+                return self._client, model_name, self._current_key
             else:
                 logger.info(f"🔄 Current key '{self._current_key.name}' at capacity, switching...")
-                self._model = None
+                self._client = None
                 self._current_key = None
         
         # Get next available key with load balancing
@@ -274,14 +275,13 @@ class APIKeyManager:
             if not api_key or not self.acquire_key_lock(api_key):
                 raise Exception("All API keys are busy. Please wait a moment.")
         
-        # Configure Gemini
-        genai.configure(api_key=api_key.key)
-        self._model = genai.GenerativeModel(model_name)
+        # Configure Gemini - create a new Client per key
+        self._client = genai.Client(api_key=api_key.key)
         self._current_key = api_key
         self._model_name = model_name
         
         logger.info(f"✅ Configured Gemini with key '{api_key.name}' for model {model_name}")
-        return self._model, api_key
+        return self._client, model_name, api_key
     
     def handle_error(self, error: Exception, api_key: APIKey) -> bool:
         """
@@ -291,11 +291,11 @@ class APIKeyManager:
         
         if self.is_quota_error(error):
             self.mark_key_exhausted(api_key, str(error))
-            
+
             # Check if we have more keys
             if self.get_next_available_key():
                 return True  # Retry with new key
-        
+
         return False  # Don't retry
     
     def get_status(self) -> dict:

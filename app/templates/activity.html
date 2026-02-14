@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activity - Voice to Notes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow { animation: spin-slow 3s linear infinite; }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <div class="max-w-6xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-2">
+                        <i class="fas fa-microphone-alt text-2xl text-blue-600 dark:text-blue-400"></i>
+                        <span class="text-xl font-bold text-gray-800 dark:text-gray-100">Voice to Notes</span>
+                    </a>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleDarkMode()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-moon text-gray-600 dark:text-gray-300 dark:hidden"></i>
+                        <i class="fas fa-sun text-yellow-400 hidden dark:inline"></i>
+                    </button>
+                    <a href="/storage" class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-hdd text-gray-600 dark:text-gray-300"></i>
+                        <span class="text-gray-700 dark:text-gray-200">Storage</span>
+                    </a>
+                    <a href="/activity" class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                        <i class="fas fa-wave-square"></i>
+                        <span>Activity</span>
+                    </a>
+                    <a href="/settings" class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-cog text-gray-600 dark:text-gray-300"></i>
+                        <span class="text-gray-700 dark:text-gray-200">Settings</span>
+                    </a>
+                    <a href="/keys" class="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                        <i class="fas fa-key text-gray-600 dark:text-gray-300"></i>
+                        <span class="text-gray-700 dark:text-gray-200">API Keys</span>
+                        {% if key_status.active_keys > 0 %}
+                        <span class="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                            {{ key_status.active_keys }}
+                        </span>
+                        {% else %}
+                        <span class="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">0</span>
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto px-4 py-8" x-data="activityMonitor()">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                    <i class="fas fa-wave-square text-blue-600 dark:text-blue-400 mr-2"></i>
+                    System Activity
+                </h1>
+                <p class="text-gray-600 dark:text-gray-400 mt-1">
+                    Real-time monitoring of the V2 processing engine
+                </p>
+            </div>
+            <div class="flex items-center space-x-3">
+                <span class="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+                    <span class="w-2 h-2 rounded-full animate-pulse-dot"
+                          :class="polling ? 'bg-green-500' : 'bg-gray-400'"></span>
+                    <span x-text="polling ? 'Auto-refresh ON' : 'Paused'"></span>
+                </span>
+                <button @click="polling = !polling" 
+                        class="px-3 py-1.5 text-sm rounded-lg border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                    <i :class="polling ? 'fa-pause' : 'fa-play'" class="fas mr-1"></i>
+                    <span x-text="polling ? 'Pause' : 'Resume'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- SYSTEM STATUS PANEL - What is the system doing RIGHT NOW -->
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-700 dark:from-blue-800 dark:to-indigo-900 rounded-xl shadow-lg p-6 mb-6 text-white">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <!-- Status Icon -->
+                    <div class="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+                        <template x-if="systemStatus.state === 'processing'">
+                            <i class="fas fa-cog text-3xl animate-spin-slow"></i>
+                        </template>
+                        <template x-if="systemStatus.state === 'scanning'">
+                            <i class="fas fa-search text-3xl animate-pulse"></i>
+                        </template>
+                        <template x-if="systemStatus.state === 'idle'">
+                            <i class="fas fa-check-circle text-3xl"></i>
+                        </template>
+                        <template x-if="systemStatus.state === 'error'">
+                            <i class="fas fa-exclamation-triangle text-3xl"></i>
+                        </template>
+                        <template x-if="!['processing', 'scanning', 'idle', 'error'].includes(systemStatus.state)">
+                            <i class="fas fa-question-circle text-3xl"></i>
+                        </template>
+                    </div>
+                    <!-- Status Text -->
+                    <div>
+                        <div class="text-sm font-medium text-white/70 uppercase tracking-wide">System State</div>
+                        <div class="text-2xl font-bold capitalize" x-text="systemStatus.state || 'Unknown'"></div>
+                        <template x-if="systemStatus.current_file">
+                            <div class="mt-1 text-sm text-white/80">
+                                <i class="fas fa-file-audio mr-1"></i>
+                                <span x-text="systemStatus.current_file"></span>
+                                <template x-if="systemStatus.current_step">
+                                    <span class="ml-2 text-white/60">— <span x-text="systemStatus.current_step"></span></span>
+                                </template>
+                            </div>
+                        </template>
+                        <template x-if="!systemStatus.current_file && systemStatus.state === 'idle'">
+                            <div class="mt-1 text-sm text-white/60">Waiting for new audio files...</div>
+                        </template>
+                    </div>
+                </div>
+                <!-- Right side stats -->
+                <div class="text-right">
+                    <div class="grid grid-cols-2 gap-6">
+                        <div>
+                            <div class="text-3xl font-bold" x-text="systemStatus.files_in_queue || 0"></div>
+                            <div class="text-sm text-white/70">In Queue</div>
+                        </div>
+                        <div>
+                            <div class="text-3xl font-bold" x-text="systemStatus.scan_count || 0"></div>
+                            <div class="text-sm text-white/70">Scans</div>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-xs text-white/50">
+                        Last scan: <span x-text="formatTime(systemStatus.last_scan_at)"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Config & Stats Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Config -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-5">
+                <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Configuration</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500 dark:text-gray-400">Watching:</span>
+                        <span class="font-mono text-gray-800 dark:text-gray-200 truncate max-w-[200px]" x-text="config.audio_input || 'Not set'"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500 dark:text-gray-400">Output:</span>
+                        <span class="font-mono text-gray-800 dark:text-gray-200 truncate max-w-[200px]" x-text="config.obsidian_vault || 'Not set'"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500 dark:text-gray-400">Mode:</span>
+                        <span class="text-gray-800 dark:text-gray-200" x-text="config.mode || 'personal_note'"></span>
+                    </div>
+                </div>
+                <a href="/settings" class="mt-4 inline-flex items-center text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                    <i class="fas fa-cog mr-1"></i> Edit Settings
+                </a>
+            </div>
+
+            <!-- Stats -->
+            <div class="lg:col-span-2 grid grid-cols-4 gap-4">
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 text-center">
+                    <div class="text-3xl font-bold text-gray-800 dark:text-gray-100" x-text="stats.total">0</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Total</div>
+                </div>
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 text-center">
+                    <div class="text-3xl font-bold text-green-600 dark:text-green-400" x-text="stats.success">0</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Success</div>
+                </div>
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 text-center">
+                    <div class="text-3xl font-bold text-red-600 dark:text-red-400" x-text="stats.failed">0</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Failed</div>
+                </div>
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 text-center">
+                    <div class="text-3xl font-bold text-yellow-600 dark:text-yellow-400" x-text="failedFiles.filter(f => f.status === 'waiting').length">0</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Pending Retry</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Failed Files Section -->
+        <template x-if="failedFiles.length > 0">
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 mb-6">
+                <div class="px-6 py-4 border-b dark:border-gray-700 flex items-center justify-between">
+                    <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        <i class="fas fa-exclamation-circle text-red-500 mr-2"></i>
+                        Failed Files
+                        <span class="ml-2 text-sm font-normal text-gray-500">(<span x-text="failedFiles.length"></span> files)</span>
+                    </h2>
+                    <div class="flex space-x-2">
+                        <button @click="skipAllFailed()" 
+                                class="px-3 py-1.5 text-sm bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-lg hover:bg-yellow-200 dark:hover:bg-yellow-900/50 transition">
+                            <i class="fas fa-forward mr-1"></i> Skip All
+                        </button>
+                        <button @click="clearFailed()" 
+                                class="px-3 py-1.5 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition">
+                            <i class="fas fa-trash mr-1"></i> Clear All
+                        </button>
+                    </div>
+                </div>
+                <div class="divide-y dark:divide-gray-700 max-h-64 overflow-y-auto">
+                    <template x-for="file in failedFiles" :key="file.file_hash">
+                        <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center space-x-2">
+                                    <span class="font-mono text-sm text-gray-800 dark:text-gray-200 truncate" x-text="file.filename"></span>
+                                    <!-- Status Badge -->
+                                    <span class="px-2 py-0.5 text-xs rounded-full"
+                                          :class="{
+                                              'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400': file.status === 'waiting',
+                                              'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400': file.status === 'ready',
+                                              'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400': file.status === 'skipped',
+                                              'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400': file.status === 'max_retries'
+                                          }"
+                                          x-text="file.status === 'waiting' ? 'Retry in ' + formatTimeUntil(file.next_retry) : 
+                                                  file.status === 'ready' ? 'Ready to retry' :
+                                                  file.status === 'skipped' ? 'Skipped' : 'Max retries'">
+                                    </span>
+                                    <span class="text-xs text-gray-400" x-text="'Attempt #' + (file.retry_count || 1)"></span>
+                                </div>
+                                <div class="text-xs text-red-500 dark:text-red-400 mt-1 truncate" x-text="file.error"></div>
+                            </div>
+                            <div class="ml-4 flex space-x-2">
+                                <template x-if="file.status !== 'skipped'">
+                                    <button @click="skipFile(file.file_hash)" 
+                                            class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition">
+                                        Skip
+                                    </button>
+                                </template>
+                                <template x-if="file.status === 'skipped'">
+                                    <button @click="unskipFile(file.file_hash)" 
+                                            class="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50 transition">
+                                        Retry
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        <!-- Processing History -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
+            <div class="px-6 py-4 border-b dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                    <i class="fas fa-history text-gray-400 mr-2"></i>
+                    Processing History
+                </h2>
+            </div>
+            
+            <template x-if="recent.length === 0">
+                <div class="p-12 text-center">
+                    <i class="fas fa-inbox text-4xl text-gray-300 dark:text-gray-600 mb-4"></i>
+                    <p class="text-gray-500 dark:text-gray-400">No files processed yet</p>
+                    <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">
+                        Drop audio files in your watched folder to get started
+                    </p>
+                </div>
+            </template>
+
+            <div class="divide-y dark:divide-gray-700 max-h-96 overflow-y-auto">
+                <template x-for="item in recent" :key="item.filename + item.processed_at">
+                    <div class="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center space-x-3">
+                                    <!-- Status Icon -->
+                                    <span :class="item.success ? 'text-green-500' : 'text-red-500'">
+                                        <i :class="item.success ? 'fa-check-circle' : 'fa-times-circle'" class="fas"></i>
+                                    </span>
+                                    <!-- Title or Filename -->
+                                    <span class="font-medium text-gray-800 dark:text-gray-100 truncate"
+                                          x-text="item.title || item.filename">
+                                    </span>
+                                    <!-- Mode Badge -->
+                                    <span class="px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+                                          x-text="item.mode || 'auto'">
+                                    </span>
+                                </div>
+                                <!-- Filename if title exists -->
+                                <template x-if="item.title">
+                                    <div class="mt-1 text-sm text-gray-500 dark:text-gray-400 font-mono truncate"
+                                         x-text="item.filename">
+                                    </div>
+                                </template>
+                                <!-- Note path if success -->
+                                <template x-if="item.success && item.note_path">
+                                    <div class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                        <i class="fas fa-file-alt mr-1"></i>
+                                        <span class="font-mono" x-text="item.note_path"></span>
+                                    </div>
+                                </template>
+                            </div>
+                            <!-- Timestamp & Duration -->
+                            <div class="ml-4 text-right shrink-0">
+                                <div class="text-sm text-gray-500 dark:text-gray-400" x-text="formatTime(item.processed_at)"></div>
+                                <template x-if="item.duration_seconds">
+                                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                        <i class="fas fa-clock mr-1"></i>
+                                        <span x-text="formatDuration(item.duration_seconds)"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+        }
+
+        function activityMonitor() {
+            return {
+                stats: {{ stats | tojson }},
+                recent: {{ recent | tojson }},
+                config: {{ config | tojson }},
+                systemStatus: {{ system_status | tojson }},
+                failedFiles: {{ failed_files | tojson }},
+                polling: true,
+                loading: false,
+                pollInterval: null,
+
+                init() {
+                    this.startPolling();
+                },
+
+                startPolling() {
+                    this.pollInterval = setInterval(() => {
+                        if (this.polling) {
+                            this.refresh();
+                        }
+                    }, 3000);  // Poll every 3 seconds for more responsive updates
+                },
+
+                async refresh() {
+                    if (this.loading) return;
+                    this.loading = true;
+                    try {
+                        const response = await fetch('/api/activity?limit=50');
+                        const data = await response.json();
+                        this.stats = data.stats;
+                        this.recent = data.recent;
+                        this.config = data.config;
+                        this.systemStatus = data.system_status;
+                        this.failedFiles = data.failed_files;
+                    } catch (err) {
+                        console.error('Failed to refresh:', err);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async skipFile(fileHash) {
+                    try {
+                        await fetch(`/api/skip-file/${fileHash}`, { method: 'POST' });
+                        this.refresh();
+                    } catch (err) {
+                        console.error('Failed to skip file:', err);
+                    }
+                },
+
+                async unskipFile(fileHash) {
+                    try {
+                        await fetch(`/api/unskip-file/${fileHash}`, { method: 'POST' });
+                        this.refresh();
+                    } catch (err) {
+                        console.error('Failed to unskip file:', err);
+                    }
+                },
+
+                async skipAllFailed() {
+                    if (!confirm('Skip all failed files? They won\'t be retried until manually enabled.')) return;
+                    try {
+                        await fetch('/api/skip-all-failed', { method: 'POST' });
+                        this.refresh();
+                    } catch (err) {
+                        console.error('Failed to skip all:', err);
+                    }
+                },
+
+                async clearFailed() {
+                    if (!confirm('Clear all failed files? They will be reprocessed from scratch on next detection.')) return;
+                    try {
+                        await fetch('/api/clear-failed', { method: 'POST' });
+                        this.refresh();
+                    } catch (err) {
+                        console.error('Failed to clear:', err);
+                    }
+                },
+
+                formatTime(isoString) {
+                    if (!isoString) return 'Never';
+                    const date = new Date(isoString);
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    
+                    if (diffMins < 1) return 'Just now';
+                    if (diffMins < 60) return `${diffMins}m ago`;
+                    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+                    
+                    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                },
+
+                formatTimeUntil(isoString) {
+                    if (!isoString) return '?';
+                    const target = new Date(isoString);
+                    const now = new Date();
+                    const diffMs = target - now;
+                    if (diffMs <= 0) return 'now';
+                    const diffMins = Math.ceil(diffMs / 60000);
+                    if (diffMins < 60) return `${diffMins}m`;
+                    return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
+                },
+
+                formatDuration(seconds) {
+                    if (!seconds) return '';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+            };
+        }
+    </script>
+</body>
+</html>

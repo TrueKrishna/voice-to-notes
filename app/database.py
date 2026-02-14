@@ -139,3 +139,33 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ============================================================================
+# SETTINGS HELPERS
+# ============================================================================
+
+def get_setting(db, key: str, default=None) -> str | None:
+    """Get a setting value by key, or return default if not set."""
+    row = db.query(Settings).filter(Settings.key == key).first()
+    if row and row.value is not None and row.value != "":
+        return row.value
+    return default
+
+
+def set_setting(db, key: str, value: str):
+    """Create or update a setting."""
+    row = db.query(Settings).filter(Settings.key == key).first()
+    if row:
+        row.value = value
+        row.updated_at = datetime.utcnow()
+    else:
+        row = Settings(key=key, value=value)
+        db.add(row)
+    db.commit()
+
+
+def get_all_settings(db) -> dict[str, str]:
+    """Get all settings as a dict."""
+    rows = db.query(Settings).all()
+    return {row.key: row.value for row in rows}
