@@ -1,25 +1,48 @@
 version: '3.8'
 
 services:
+  # ── V1 Web App ──────────────────────────────────────────────────
   app:
     build: .
     container_name: voice-to-notes
     ports:
       - "9123:8000"
     volumes:
-      # Persist database and uploads
       - voice_notes_data:/app/data
+      # Broad Google Drive mount — user picks subdirectories in Settings UI
+      - ${GDRIVE_MOUNT_PATH:-./_placeholder_gdrive}:/data/gdrive
     environment:
       - DATABASE_URL=sqlite:///./data/voice_notes.db
-      # Optionally set API key via environment (can also add in UI)
-      # - GEMINI_API_KEY=your-key-here
+    env_file:
+      - .env
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # ── V2 Watcher Engine ──────────────────────────────────────────
+  watcher:
+    build: .
+    container_name: voice-to-notes-watcher
+    command: python run_watcher.py
+    volumes:
+      - voice_notes_data:/app/data
+      # Same broad mount — watcher reads paths from DB Settings
+      - ${GDRIVE_MOUNT_PATH:-./_placeholder_gdrive}:/data/gdrive
+    environment:
+      - DATABASE_URL=sqlite:///./data/voice_notes.db
+      # Fallback paths if DB settings not yet configured
+      - LOCAL_SYNC_AUDIO_DIR=/data/gdrive
+      - OBSIDIAN_VAULT_DIR=/data/gdrive
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   voice_notes_data:
