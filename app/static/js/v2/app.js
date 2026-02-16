@@ -1225,15 +1225,10 @@ window.initRename = function(noteId, currentFilename, onSuccess) {
                 return;
             }
             
-            // Fallback: try to find any timestamp-like prefix
-            var parts = this.currentFilename.replace('.md', '').split('_');
-            if (parts.length >= 5) {
-                this.timestampPrefix = parts.slice(0, 5).join('_');
-                this.editingSlug = parts.slice(5).join('_');
-            } else {
-                this.timestampPrefix = '';
-                this.editingSlug = this.currentFilename.replace('.md', '');
-            }
+            // Fallback: treat entire filename as slug if no timestamp pattern matched
+            console.warn('Filename does not match expected timestamp format:', this.currentFilename);
+            this.timestampPrefix = '';
+            this.editingSlug = this.currentFilename.replace('.md', '');
         },
         
         startEdit: function() {

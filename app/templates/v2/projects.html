@@ -17,10 +17,10 @@
             <div class="modal-content" 
                  @click.stop
                  x-data="window.initRename(renameNote.id, renameNote.filename, function(data) { 
-                     renameNote.filename = data.new_filename; 
+                     renameNote.filename = data.new_filename;
+                     renameNote.title = data.new_filename.replace(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_/, '').replace(/\.md$/, '').replace(/-/g, ' ');
                      showRenameModal = false;
-                     location.reload();
-                 })">
+                 })">>
                 <h3 class="text-lg font-semibold" style="margin-bottom: var(--space-4);">Rename Note</h3>
                 
                 <div style="margin-bottom: var(--space-4);">

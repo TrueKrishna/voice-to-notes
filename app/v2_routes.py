@@ -2021,7 +2021,7 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
                 (str(new_path), note_id)
             )
             conn.commit()
-        except Exception as e:
+        except sqlite3.Error as e:
             # Try to rollback the filesystem rename
             try:
                 os.rename(new_path, old_path)
