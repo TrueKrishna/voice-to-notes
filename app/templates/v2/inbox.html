@@ -99,8 +99,10 @@ window.__filterTag = {{ filter_tag | tojson }};</script>
                                 <div class="list-item-title" x-text="note.title || note.filename || 'Untitled'"></div>
                                 <div class="list-item-meta">
                                     <template x-if="note.projects && note.projects.length > 0">
-                                        <span class="text-xs" style="color: var(--accent);" x-text="note.projects[0]"></span>
-                                        <span>·</span>
+                                        <span>
+                                            <span class="text-xs" style="color: var(--accent);" x-text="note.projects[0]"></span>
+                                            <span> · </span>
+                                        </span>
                                     </template>
                                     <span x-text="timeAgo(note.captured_at || note.processed_at || note.created_at)"></span>
                                 </div>
@@ -129,6 +131,7 @@ window.__filterTag = {{ filter_tag | tojson }};</script>
                         get note() { return filteredNotes.find(n => n.id === selectedId); },
                         viewMode: 'summary',
                         showProjectDropdown: false,
+                        showMoreOptions: false,
                         newProject: '',
                         get rendered() {
                             const c = this.note?.content || '';

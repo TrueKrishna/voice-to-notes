@@ -255,14 +255,20 @@ document.addEventListener('alpine:init', function() {
             copyTranscript: function() {
                 var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
                 if (note && note.transcript) {
-                    navigator.clipboard.writeText(note.transcript);
-                    this.toast('Transcript copied to clipboard');
+                    navigator.clipboard.writeText(note.transcript)
+                        .then(function() {
+                            console.log('Transcript copied to clipboard');
+                            // TODO: Show toast notification
+                        })
+                        .catch(function(err) {
+                            console.error('Failed to copy transcript:', err);
+                        });
                 }
             },
             
             downloadTranscript: function() {
                 var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
-                if (note && note.source === 'registry') {
+                if (note && note.source === 'registry' && note.transcript) {
                     window.open('/v2/api/registry/' + note.id + '/download/transcript', '_blank');
                 }
             },
@@ -270,14 +276,20 @@ document.addEventListener('alpine:init', function() {
             copyBreakdown: function() {
                 var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
                 if (note && note.content) {
-                    navigator.clipboard.writeText(note.content);
-                    this.toast('Breakdown copied to clipboard');
+                    navigator.clipboard.writeText(note.content)
+                        .then(function() {
+                            console.log('Breakdown copied to clipboard');
+                            // TODO: Show toast notification
+                        })
+                        .catch(function(err) {
+                            console.error('Failed to copy breakdown:', err);
+                        });
                 }
             },
             
             downloadBreakdown: function() {
                 var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
-                if (note && note.source === 'registry') {
+                if (note && note.source === 'registry' && note.content) {
                     window.open('/v2/api/registry/' + note.id + '/download/note', '_blank');
                 }
             },
@@ -303,8 +315,8 @@ document.addEventListener('alpine:init', function() {
                     self.toast('Project updated');
                 })
                 .catch(function(err) {
-                    self.toast('Failed to update project');
-                    console.error(err);
+                    self.toast('Failed to update project. Please try again.');
+                    console.error('Project update error:', err);
                 });
             },
             
@@ -327,9 +339,9 @@ document.addEventListener('alpine:init', function() {
             },
             
             toast: function(msg) {
-                // Simple toast notification
+                // Simple toast notification - TODO: Implement proper toast UI
+                // For now, just log to console as a placeholder
                 console.log('Toast:', msg);
-                // TODO: Implement proper toast UI
             },
             
             // Format helpers for templates
