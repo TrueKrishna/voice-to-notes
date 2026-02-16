@@ -506,6 +506,8 @@ async def v2_projects(request: Request, db: Session = Depends(get_db)):
         try:
             conn = sqlite3.connect(str(registry_path))
             conn.row_factory = sqlite3.Row
+            # Note: COALESCE(ingested_at, processed_at) aliased as 'processed_at' for template compatibility
+            # This represents the actual ingestion time, falling back to processing time for old entries
             rows = conn.execute(
                 "SELECT id, filename, title, mode, projects, COALESCE(ingested_at, processed_at) as processed_at, success, error, duration_seconds "
                 "FROM processed_files WHERE success = 1 ORDER BY COALESCE(ingested_at, processed_at) DESC"
@@ -942,6 +944,7 @@ def _get_ingest_files(db: Session) -> list:
         try:
             conn = sqlite3.connect(str(registry_path))
             conn.row_factory = sqlite3.Row
+            # Select both ingested_at and processed_at for fallback logic (line 1001)
             rows = conn.execute(
                 "SELECT filename, file_hash, success, error, retry_count, processed_at, ingested_at, skipped, title "
                 "FROM processed_files ORDER BY COALESCE(ingested_at, processed_at) DESC"
