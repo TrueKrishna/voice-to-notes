@@ -99,12 +99,22 @@ class GeminiClient:
             "All API keys exhausted. Wait for quota reset or add more keys."
         )
     
-    def _handle_rate_limit(self, key_idx: int):
+    def _handle_rate_limit(self, key_idx: int, error: Exception = None):
         """Handle a 429 rate limit error for a key.
         
-        Puts key in cooldown. After MAX_429_BEFORE_EXHAUST consecutive 429s,
-        marks the key as truly exhausted (daily quota exceeded).
+        If the error is a daily quota exhaustion, immediately marks the key 
+        as exhausted (no point retrying a daily limit).
+        Otherwise, puts key in cooldown. After MAX_429_BEFORE_EXHAUST consecutive 429s,
+        marks the key as truly exhausted.
         """
+        # Daily quota errors: immediately exhaust the key
+        if error and self._is_daily_quota_error(error):
+            logger.warning(f"🚫 Key {key_idx + 1} hit DAILY quota limit — marking exhausted immediately. Error: {str(error)[:120]}")
+            self._exhausted.add(key_idx)
+            self._key_cooldowns.pop(key_idx, None)
+            self._key_429_counts.pop(key_idx, None)
+            return
+        
         self._key_429_counts[key_idx] = self._key_429_counts.get(key_idx, 0) + 1
         consecutive_429s = self._key_429_counts[key_idx]
         
@@ -186,7 +196,7 @@ class GeminiClient:
             except Exception as e:
                 last_error = e
                 if self._is_quota_error(e):
-                    self._handle_rate_limit(key_idx)
+                    self._handle_rate_limit(key_idx, error=e)
                     continue
                 if self._is_network_error(e):
                     wait = min(5 * (2 ** attempt), 30)
@@ -235,7 +245,7 @@ class GeminiClient:
             except Exception as e:
                 last_error = e
                 if self._is_quota_error(e):
-                    self._handle_rate_limit(key_idx)
+                    self._handle_rate_limit(key_idx, error=e)
                     continue
                 if self._is_network_error(e):
                     wait = min(5 * (2 ** attempt), 30)
