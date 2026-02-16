@@ -1,0 +1,134 @@
+{% extends "v2/base.html" %}
+
+{% block title %}API Keys — L1{% endblock %}
+
+{% block head %}
+<script>
+window.__keysData = {{ keys | tojson }};
+</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="keyManager(window.__keysData)">
+    
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">API Keys</h1>
+            <p class="page-subtitle">Manage Gemini API keys for transcription and structuring</p>
+        </div>
+    </div>
+
+    <!-- Add Key Form -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header">
+            <span class="panel-title">Add New Key</span>
+        </div>
+        <div class="panel-content">
+            <div class="key-add-form">
+                <div class="form-row">
+                    <div class="form-group" style="flex: 2;">
+                        <label class="form-label">API Key</label>
+                        <input type="password" class="form-input" placeholder="AIza..."
+                               x-model="newKey" @keydown.enter="addKey()">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">Name (optional)</label>
+                        <input type="text" class="form-input" placeholder="e.g. Personal, Work"
+                               x-model="newName" @keydown.enter="addKey()">
+                    </div>
+                    <div class="form-group" style="align-self: flex-end;">
+                        <button class="btn btn-primary" @click="addKey()" :disabled="!newKey || adding">
+                            <template x-if="!adding"><span>Add Key</span></template>
+                            <template x-if="adding"><span>Adding...</span></template>
+                        </button>
+                    </div>
+                </div>
+                <template x-if="addError">
+                    <p class="text-xs" style="color: var(--error); margin-top: var(--space-2);" x-text="addError"></p>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keys List -->
+    <div class="panel">
+        <div class="panel-header">
+            <span class="panel-title">Configured Keys</span>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-muted" x-text="keys.length + ' keys'"></span>
+                <template x-if="exhaustedCount > 0">
+                    <button class="btn btn-sm btn-secondary" @click="resetAll()">Reset All Exhausted</button>
+                </template>
+            </div>
+        </div>
+        
+        <template x-if="keys.length === 0">
+            <div class="empty-state" style="padding: var(--space-8);">
+                <i data-lucide="key" style="width:32px;height:32px;color:var(--text-tertiary);margin-bottom:var(--space-2);"></i>
+                <p class="text-sm text-muted">No API keys configured</p>
+                <p class="text-xs text-muted">Add a Gemini API key above to start processing</p>
+            </div>
+        </template>
+
+        <template x-if="keys.length > 0">
+            <div class="key-table-wrap">
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Name</th>
+                            <th>Key</th>
+                            <th>Requests</th>
+                            <th>Last Used</th>
+                            <th>Last Error</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="key in keys" :key="key.id">
+                            <tr class="file-row">
+                                <td>
+                                    <span class="file-badge" 
+                                          :class="key.is_exhausted ? 'badge-failed' : (key.is_active ? 'badge-completed' : 'badge-skipped')">
+                                        <span x-text="key.is_exhausted ? 'EXHAUSTED' : (key.is_active ? 'ACTIVE' : 'DISABLED')"></span>
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="text-sm font-medium" x-text="key.name"></span>
+                                </td>
+                                <td>
+                                    <code class="text-xs text-muted" x-text="key.key_preview" style="font-family: var(--font-mono);"></code>
+                                </td>
+                                <td>
+                                    <span class="text-xs" x-text="key.total_requests"></span>
+                                    <template x-if="key.failed_requests > 0">
+                                        <span class="text-xs" style="color:var(--error);" x-text="' / ' + key.failed_requests + ' fail'"></span>
+                                    </template>
+                                </td>
+                                <td class="text-xs text-muted" x-text="key.last_used_at ? formatDate(key.last_used_at) : 'Never'"></td>
+                                <td class="file-result-cell">
+                                    <template x-if="key.last_error">
+                                        <span class="text-xs file-error" :title="key.last_error" x-text="truncateError(key.last_error, 60)"></span>
+                                    </template>
+                                </td>
+                                <td>
+                                    <div class="flex items-center gap-1">
+                                        <button class="btn-micro" @click="toggleKey(key.id)" 
+                                                :title="key.is_active ? 'Disable' : 'Enable'"
+                                                x-text="key.is_active ? '⏸' : '▶'"></button>
+                                        <template x-if="key.is_exhausted">
+                                            <button class="btn-micro" @click="resetKey(key.id)" title="Reset">↺</button>
+                                        </template>
+                                        <button class="btn-micro" @click="deleteKey(key.id)" title="Delete"
+                                                style="color:var(--error);">✕</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </template>
+    </div>
+</div>
+{% endblock %}

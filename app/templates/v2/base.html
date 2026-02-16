@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}L1{% endblock %}</title>
+    
+    <!-- Critical inline styles for immediate render -->
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0a0b;
+            color: #fafafa;
+            min-height: 100vh;
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', path='css/v2/tokens.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/v2/base.css') }}">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- App JS (must load before Alpine to register alpine:init handlers) -->
+    <script src="{{ url_for('static', path='js/v2/app.js') }}"></script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+    
+    <!-- Markdown renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+    
+    {% block head %}{% endblock %}
+</head>
+<body x-data="{ sidebarCollapsed: false }">
+    
+    <div class="app-layout" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+        
+        <!-- ═══════════════════════════════════════════════════════════════
+             SIDEBAR
+             ═══════════════════════════════════════════════════════════════ -->
+        <aside class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
+            
+            <!-- Header -->
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i data-lucide="mic"></i>
+                </div>
+                <span class="sidebar-title">L1</span>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="sidebar-nav">
+                <div class="sidebar-section">
+                    <a href="/v2/" class="sidebar-item {% if active_page == 'dashboard' %}active{% endif %}">
+                        <i data-lucide="layout-dashboard" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Dashboard</span>
+                    </a>
+                    <a href="/v2/inbox" class="sidebar-item {% if active_page == 'inbox' %}active{% endif %}">
+                        <i data-lucide="inbox" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Inbox</span>
+                        {% if inbox_count %}
+                        <span class="sidebar-badge accent">{{ inbox_count }}</span>
+                        {% endif %}
+                    </a>
+                    <a href="/v2/tasks" class="sidebar-item {% if active_page == 'tasks' %}active{% endif %}">
+                        <i data-lucide="check-square" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Tasks</span>
+                        {% if tasks_count %}
+                        <span class="sidebar-badge">{{ tasks_count }}</span>
+                        {% endif %}
+                    </a>
+                </div>
+                
+                <div class="sidebar-divider"></div>
+                
+                <div class="sidebar-section">
+                    <a href="/v2/calendar" class="sidebar-item {% if active_page == 'calendar' %}active{% endif %}">
+                        <i data-lucide="calendar" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Calendar</span>
+                    </a>
+                    <a href="/v2/projects" class="sidebar-item {% if active_page == 'projects' %}active{% endif %}">
+                        <i data-lucide="folder" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Projects</span>
+                    </a>
+                    <a href="/v2/archive" class="sidebar-item {% if active_page == 'archive' %}active{% endif %}">
+                        <i data-lucide="archive" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Archive</span>
+                    </a>
+                </div>
+                
+                <!-- Tags Section -->
+                <div class="sidebar-section" x-data="{ tags: [], expanded: false, loaded: false }" x-show="!sidebarCollapsed || expanded">
+                    <div class="sidebar-item" @click="expanded = !expanded; if (!loaded) { fetch('/v2/api/all-tags').then(r => r.json()).then(d => { tags = d.tags || []; loaded = true; }); }" style="cursor:pointer;">
+                        <i data-lucide="hash" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Tags</span>
+                        <i :data-lucide="expanded ? 'chevron-down' : 'chevron-right'" class="sidebar-icon" style="margin-left:auto; width:14px; height:14px; opacity:0.5;"></i>
+                    </div>
+                    <template x-if="expanded && tags.length > 0">
+                        <div style="padding-left:28px; margin-top:2px; max-height:180px; overflow-y:auto;">
+                            <template x-for="tag in tags.slice(0, 15)" :key="tag.name">
+                                <a :href="'/v2/inbox?tag=' + encodeURIComponent(tag.name)" class="sidebar-item" style="padding:4px 8px; font-size:0.75rem; gap:6px;">
+                                    <span x-text="'#' + tag.name" style="opacity:0.9;"></span>
+                                    <span x-text="tag.count" style="margin-left:auto; opacity:0.4; font-size:0.6875rem;"></span>
+                                </a>
+                            </template>
+                            <template x-if="tags.length > 15">
+                                <span class="text-xs text-muted" style="display:block; padding:4px 8px;">+<span x-text="tags.length - 15"></span> more</span>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="expanded && tags.length === 0 && loaded">
+                        <div style="padding:4px 8px 4px 28px;">
+                            <span class="text-xs text-muted">No tags yet</span>
+                        </div>
+                    </template>
+                </div>
+                
+                <div class="sidebar-divider"></div>
+                
+                <div class="sidebar-section">
+                    <a href="/v2/keys" class="sidebar-item {% if active_page == 'keys' %}active{% endif %}">
+                        <i data-lucide="key-round" class="sidebar-icon"></i>
+                        <span class="sidebar-label">API Keys</span>
+                    </a>
+                    <a href="/v2/settings" class="sidebar-item {% if active_page == 'settings' %}active{% endif %}">
+                        <i data-lucide="settings" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Settings</span>
+                    </a>
+                    <a href="/" class="sidebar-item">
+                        <i data-lucide="arrow-left" class="sidebar-icon"></i>
+                        <span class="sidebar-label">Legacy UI</span>
+                    </a>
+                </div>
+            </nav>
+            
+            <!-- Footer -->
+            <div class="sidebar-footer">
+                <button class="sidebar-collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+                    <i data-lucide="panel-left-close" class="sidebar-icon"></i>
+                </button>
+            </div>
+            
+        </aside>
+        
+        <!-- ═══════════════════════════════════════════════════════════════
+             MAIN CONTENT
+             ═══════════════════════════════════════════════════════════════ -->
+        <main class="main-content">
+            <div class="content-area">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+        
+        <!-- ═══════════════════════════════════════════════════════════════
+             STATUS BAR
+             ═══════════════════════════════════════════════════════════════ -->
+        <footer class="status-bar" x-data="{ ws: 'idle', wsColor: '#22c55e', model: '' }"
+                @system-status.window="ws = ($event.detail.watcher || {}).state || 'idle'; 
+                    wsColor = {'processing':'#3b82f6','error':'#ef4444','scanning':'#22c55e','idle':'#22c55e'}[ws] || '#71717a';
+                    model = ($event.detail.config || {}).model || ''">
+            <div class="flex items-center gap-3">
+                <span class="flex items-center gap-2">
+                    <span class="status-dot" :style="'background:' + wsColor"></span>
+                    <span x-text="ws.charAt(0).toUpperCase() + ws.slice(1)">System Ready</span>
+                </span>
+                <span>•</span>
+                <span id="status-message">{% block status_left %}{% endblock %}</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span x-text="model || 'v2.1.0'" x-show="model">v2.1.0</span>
+                <span>•</span>
+                <span>v2.1.0</span>
+            </div>
+        </footer>
+        
+    </div>
+    
+    {% block modals %}{% endblock %}
+    
+    <!-- Initialize icons once -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+                // Re-create icons when Alpine updates DOM
+                document.addEventListener('system-status', function() {
+                    lucide.createIcons();
+                });
+                // Also re-create after Alpine init
+                var iconTimer = setInterval(function() {
+                    lucide.createIcons();
+                }, 1000);
+                setTimeout(function() { clearInterval(iconTimer); }, 5000);
+            }
+        });
+    </script>
+    
+</body>
+</html>

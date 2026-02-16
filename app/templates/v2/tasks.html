@@ -1,0 +1,133 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Tasks — L1{% endblock %}
+
+{% block head %}
+<script>window.__tasksData = {{ tasks | tojson }};</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="taskList(window.__tasksData)">>
+    
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Tasks</h1>
+            <p class="page-subtitle">
+                <span x-text="stats.pending"></span> pending • <span x-text="stats.completed"></span> completed
+            </p>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-ghost" @click="refresh()" :disabled="loading">
+                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;" :class="{ 'animate-spin': loading }"></i>
+                Refresh
+            </button>
+        </div>
+    </div>
+    
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <button class="filter-tab" :class="{ 'active': filter === 'pending' }" @click="filter = 'pending'">
+            Pending
+            <span class="sidebar-badge" style="margin-left: var(--space-1);" x-text="stats.pending"></span>
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'completed' }" @click="filter = 'completed'">
+            Completed
+            <span class="sidebar-badge" style="margin-left: var(--space-1);" x-text="stats.completed"></span>
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'all' }" @click="filter = 'all'">
+            All
+        </button>
+    </div>
+    
+    <!-- Task List -->
+    <div class="panel">
+        <div style="max-height: calc(100vh - 280px); overflow-y: auto;">
+            
+            <template x-if="filteredTasks.length === 0">
+                <div class="empty-state">
+                    <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: var(--space-4);"></i>
+                    <p class="empty-state-title">
+                        <template x-if="filter === 'pending'">All caught up!</template>
+                        <template x-if="filter === 'completed'">No completed tasks</template>
+                        <template x-if="filter === 'all'">No tasks yet</template>
+                    </p>
+                    <p class="empty-state-text">
+                        <template x-if="filter === 'pending'">You've completed all your tasks</template>
+                        <template x-if="filter === 'completed'">Complete some tasks to see them here</template>
+                        <template x-if="filter === 'all'">Tasks are extracted from your voice notes</template>
+                    </p>
+                </div>
+            </template>
+            
+            <template x-for="task in filteredTasks" :key="task.id">
+                <div class="list-item" style="align-items: center;">
+                    <div class="task-checkbox" 
+                         :class="{ 'checked': task.completed }"
+                         @click="toggle(task)">
+                        <template x-if="task.completed">
+                            <i data-lucide="check" style="width: 10px; height: 10px; color: white;"></i>
+                        </template>
+                    </div>
+                    <div class="list-item-content" style="flex: 1;">
+                        <div class="task-text" 
+                             :class="{ 'completed': task.completed }" 
+                             :style="task.completed ? 'text-decoration: line-through; color: var(--text-muted);' : ''"
+                             x-text="task.text"></div>
+                        <div class="list-item-meta">
+                            <template x-if="task.priority === 'high'">
+                                <span style="color:var(--error);">🔴 High</span>
+                            </template>
+                            <template x-if="task.priority === 'low'">
+                                <span style="color:var(--success);">🟢 Low</span>
+                            </template>
+                            <template x-if="task.due_date">
+                                <span>📅 <span x-text="task.due_date"></span></span>
+                            </template>
+                            <template x-if="task.source">
+                                <span class="text-muted">from <span x-text="task.source"></span></span>
+                            </template>
+                            <template x-if="task.date">
+                                <span class="text-muted">• <span x-text="task.date"></span></span>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            
+        </div>
+    </div>
+    
+    <!-- Stats Footer -->
+    <div class="flex items-center justify-between" style="margin-top: var(--space-4); padding: var(--space-3); background: var(--bg-surface); border-radius: 8px;">
+        <span class="text-sm text-secondary">
+            Total: <span x-text="stats.total"></span> tasks
+        </span>
+        <div class="flex items-center gap-4">
+            <span class="text-xs text-muted">
+                <span class="status-dot pending" style="display: inline-block; vertical-align: middle;"></span>
+                <span x-text="stats.pending"></span> pending
+            </span>
+            <span class="text-xs text-muted">
+                <span class="status-dot active" style="display: inline-block; vertical-align: middle;"></span>
+                <span x-text="stats.completed"></span> completed
+            </span>
+        </div>
+    </div>
+    
+</div>
+
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+</style>
+{% endblock %}
+
+{% block status_left %}
+{{ tasks | length }} total tasks
+{% endblock %}

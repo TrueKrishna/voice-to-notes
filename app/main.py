@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from .database import init_db, get_db, Recording, APIKey, Settings, get_setting, set_setting, get_all_settings
 from .api_keys import APIKeyManager
 from .processor import AudioProcessor, SUPPORTED_FORMATS
+from .v2_routes import router as v2_router
 
 # Import shared modules for model configs
 try:
@@ -72,6 +73,14 @@ app = FastAPI(
 
 # Templates
 templates = Jinja2Templates(directory="app/templates")
+
+# Mount static files for V2 frontend
+static_path = Path("app/static")
+if static_path.exists():
+    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+
+# Include V2 routes
+app.include_router(v2_router)
 
 
 # ============================================================================

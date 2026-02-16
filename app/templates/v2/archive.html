@@ -1,0 +1,119 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Archive — L1{% endblock %}
+
+{% block content %}
+<div x-data="archiveView()">
+
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Archive</h1>
+            <p class="page-subtitle">All processed voice notes</p>
+        </div>
+        <div class="page-actions">
+            <span class="text-xs text-muted" x-text="total + ' total notes'"></span>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="archive-filters">
+            <div class="filter-group">
+                <label class="form-label">Status</label>
+                <select class="form-input form-select" x-model="statusFilter" @change="applyFilters()">
+                    <option value="all">All</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label class="form-label">From</label>
+                <input type="date" class="form-input" x-model="fromDate" @change="applyFilters()">
+            </div>
+            <div class="filter-group">
+                <label class="form-label">To</label>
+                <input type="date" class="form-input" x-model="toDate" @change="applyFilters()">
+            </div>
+            <div class="filter-group" style="align-self:flex-end;">
+                <button class="btn btn-sm btn-ghost" @click="clearFilters()">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <template x-if="loading">
+        <div class="empty-state" style="padding: var(--space-4);">
+            <p class="text-sm text-muted">Loading...</p>
+        </div>
+    </template>
+
+    <!-- Results Table -->
+    <template x-if="!loading">
+        <div class="panel">
+            <div class="file-table-wrap">
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>File</th>
+                            <th>Title</th>
+                            <th>Mode</th>
+                            <th>Duration</th>
+                            <th>Processed</th>
+                            <th style="width: 100px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-if="items.length === 0">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted" style="padding:var(--space-6);">
+                                    No notes found matching the filters
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="item in items" :key="item.id">
+                            <tr class="clickable-row" @click="window.location='/v2/registry-note/' + item.id">
+                                <td>
+                                    <span class="file-badge" :class="item.success ? 'badge-completed' : 'badge-failed'" x-text="item.success ? 'OK' : 'FAIL'"></span>
+                                </td>
+                                <td>
+                                    <span class="text-sm" x-text="item.filename"></span>
+                                </td>
+                                <td>
+                                    <a :href="'/v2/registry-note/' + item.id" class="text-sm" style="color:inherit; text-decoration:none;" @click.stop x-text="item.title || '—'"></a>
+                                </td>
+                                <td>
+                                    <span class="text-xs text-muted" x-text="item.mode || '—'"></span>
+                                </td>
+                                <td>
+                                    <span class="text-xs text-muted" x-text="item.duration_seconds ? Math.floor(item.duration_seconds / 60) + ':' + ('0' + Math.floor(item.duration_seconds % 60)).slice(-2) : '—'"></span>
+                                </td>
+                                <td>
+                                    <span class="text-xs text-muted" x-text="item.processed_at || '—'"></span>
+                                </td>
+                                <td @click.stop>
+                                    <div class="row-actions">
+                                        <a :href="'/v2/registry-note/' + item.id" class="btn-icon" title="Open">↗</a>
+                                        <button class="btn-icon" @click="reprocessItem(item.id)" title="Reprocess">↻</button>
+                                        <button class="btn-icon btn-danger" @click="deleteItem(item.id)" title="Delete">✕</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <template x-if="totalPages > 1">
+                <div class="pagination">
+                    <button class="btn btn-sm btn-secondary" :disabled="page <= 1" @click="goPage(page - 1)">&larr; Prev</button>
+                    <span class="text-xs text-muted" x-text="'Page ' + page + ' of ' + totalPages"></span>
+                    <button class="btn btn-sm btn-secondary" :disabled="page >= totalPages" @click="goPage(page + 1)">Next &rarr;</button>
+                </div>
+            </template>
+        </div>
+    </template>
+
+</div>
+{% endblock %}

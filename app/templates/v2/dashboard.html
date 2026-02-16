@@ -1,0 +1,363 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Dashboard — L1{% endblock %}
+
+{% block head %}
+<script>
+window.__dashboardData = {
+    watcher: {{ watcher | tojson }},
+    stats: {{ stats | tojson }},
+    api_keys: {{ api_keys | tojson }},
+    recent_activity: {{ recent_activity | tojson }},
+    failed_files: {{ failed_files | tojson }},
+    ingest_files: {{ ingest_files | tojson }},
+    config: {{ config | tojson }}
+};
+</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="liveSystem(window.__dashboardData)">
+
+    <!-- ═══════════════════════════════════════════════════════
+         SECTION A: SYSTEM STATUS BANNER
+         ═══════════════════════════════════════════════════════ -->
+    <div class="system-banner" :class="{ 'banner-processing': isProcessing, 'banner-error': watcherState === 'error' }">
+        <div class="banner-left">
+            <!-- Status Indicator -->
+            <div class="banner-indicator">
+                <span class="banner-dot" :class="watcherState"
+                      :style="'background:' + watcherColor"></span>
+                <span class="banner-state" x-text="watcherLabel"></span>
+            </div>
+            
+            <!-- Current file being processed -->
+            <template x-if="isProcessing && watcher.current_file">
+                <div class="banner-detail">
+                    <span class="banner-file" x-text="watcher.current_file"></span>
+                    <template x-if="watcher.current_step">
+                        <span class="banner-step" x-text="'— ' + watcher.current_step"></span>
+                    </template>
+                </div>
+            </template>
+            
+            <!-- Idle info -->
+            <template x-if="!isProcessing && watcherState !== 'error'">
+                <div class="banner-detail">
+                    <span class="text-xs text-muted">Scanning every <span x-text="config.scan_interval || '5'"></span>s</span>
+                    <span class="text-xs text-muted">· Last scan <span x-text="timeSinceLastScan"></span></span>
+                </div>
+            </template>
+            
+            <!-- Error info -->
+            <template x-if="watcherState === 'error'">
+                <div class="banner-detail">
+                    <span class="text-xs" style="color: var(--error);" x-text="watcher.current_step || 'Unknown error'"></span>
+                </div>
+            </template>
+        </div>
+
+        <div class="banner-right">
+            <!-- API Key Health -->
+            <div class="banner-chip" :class="{ 'chip-warn': apiKeys.exhausted > 0 }">
+                <i data-lucide="key" style="width:12px;height:12px;"></i>
+                <span x-text="apiKeys.active + '/' + apiKeys.total + ' keys'"></span>
+                <template x-if="apiKeys.exhausted > 0">
+                    <span style="color:var(--warning);" x-text="'(' + apiKeys.exhausted + ' exhausted)'"></span>
+                </template>
+            </div>
+            
+            <!-- Queue -->
+            <template x-if="(watcher.files_in_queue || 0) > 0">
+                <div class="banner-chip">
+                    <i data-lucide="layers" style="width:12px;height:12px;"></i>
+                    <span x-text="watcher.files_in_queue + ' in queue'"></span>
+                </div>
+            </template>
+            
+            <!-- Model -->
+            <div class="banner-chip">
+                <i data-lucide="cpu" style="width:12px;height:12px;"></i>
+                <span x-text="config.model || 'unknown'"></span>
+            </div>
+
+            <!-- Poll indicator -->
+            <div class="banner-chip" :class="{ 'chip-error': pollError }">
+                <span class="poll-dot" :class="{ 'poll-active': !pollError }"></span>
+                <span class="text-xs" x-text="pollError ? 'Disconnected' : 'Live'"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         STATS ROW
+         ═══════════════════════════════════════════════════════ -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value" x-text="stats.total_notes || 0"></div>
+            <div class="stat-label">Processed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--success);" x-text="stats.success || 0"></div>
+            <div class="stat-label">Success</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--error);" x-text="stats.failed || 0"></div>
+            <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent);" x-text="stats.notes_today || 0"></div>
+            <div class="stat-label">Today</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" x-text="ingestFiles.length || 0"></div>
+            <div class="stat-label">In Folder</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--warning);" x-text="newFileCount"></div>
+            <div class="stat-label">New</div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SECTION B: INGEST FOLDER BROWSER
+         ═══════════════════════════════════════════════════════ -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header">
+            <div class="flex items-center gap-2">
+                <i data-lucide="folder-open" style="width:16px;height:16px;color:var(--accent);"></i>
+                <span class="panel-title">Ingest Folder</span>
+                <span class="text-xs text-muted" x-text="config.audio_input || 'Not configured'"></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-muted" x-text="ingestFiles.length + ' files'"></span>
+            </div>
+        </div>
+        
+        <!-- File Table -->
+        <div class="file-table-wrap">
+            <template x-if="ingestFiles.length === 0">
+                <div class="empty-state" style="padding: var(--space-8);">
+                    <i data-lucide="folder-x" style="width:32px;height:32px;color:var(--text-tertiary);margin-bottom:var(--space-2);"></i>
+                    <p class="text-sm text-muted">No audio files in ingest folder</p>
+                    <p class="text-xs text-muted" style="margin-top:var(--space-1);" x-text="config.audio_input === 'Not configured' ? 'Configure the ingest folder in Settings' : 'Waiting for audio files...'"></p>
+                </div>
+            </template>
+            <template x-if="ingestFiles.length > 0">
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="file in ingestFiles" :key="file.name">
+                            <tr class="file-row" :class="'file-' + file.status">
+                                <!-- Status badge -->
+                                <td>
+                                    <span class="file-badge" :class="'badge-' + file.status">
+                                        <template x-if="file.status === 'new'">
+                                            <span>NEW</span>
+                                        </template>
+                                        <template x-if="file.status === 'processing'">
+                                            <span class="badge-pulse">PROCESSING</span>
+                                        </template>
+                                        <template x-if="file.status === 'completed'">
+                                            <span>OK</span>
+                                        </template>
+                                        <template x-if="file.status === 'failed'">
+                                            <span>FAILED</span>
+                                        </template>
+                                        <template x-if="file.status === 'skipped'">
+                                            <span>SKIP</span>
+                                        </template>
+                                    </span>
+                                </td>
+                                <!-- Filename -->
+                                <td>
+                                    <div class="file-name" x-text="file.name"></div>
+                                    <template x-if="file.rel_path !== file.name">
+                                        <div class="text-xs text-muted" x-text="file.rel_path"></div>
+                                    </template>
+                                </td>
+                                <!-- Size -->
+                                <td class="text-xs text-muted" x-text="formatFileSize(file.size_bytes)"></td>
+                                <!-- Modified -->
+                                <td class="text-xs text-muted" x-text="formatDate(file.modified_at)"></td>
+                                <!-- Result / error / actions -->
+                                <td class="file-result-cell">
+                                    <div style="display:flex; align-items:center; gap:var(--space-2);">
+                                        <template x-if="file.status === 'completed' && file.title">
+                                            <span class="text-xs" style="color:var(--success); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="file.title"></span>
+                                        </template>
+                                        <template x-if="file.status === 'failed' && file.error">
+                                            <span class="text-xs file-error" style="flex:1;" :title="file.error" x-text="truncateError(file.error, 60)"></span>
+                                        </template>
+                                        <template x-if="file.status === 'failed' && file.retry_count > 0">
+                                            <span class="text-xs text-muted" x-text="'#' + file.retry_count"></span>
+                                        </template>
+                                        <!-- Actions -->
+                                        <template x-if="file.status === 'failed' && file.file_hash">
+                                            <div style="display:flex; gap:4px;">
+                                                <button class="log-action-btn" @click.stop="retryFile(file.file_hash)" title="Retry processing">
+                                                    <i data-lucide="refresh-cw" style="width:12px;height:12px;"></i>
+                                                </button>
+                                                <button class="log-action-btn" @click.stop="skipFile(file.file_hash)" title="Skip this file">
+                                                    <i data-lucide="x" style="width:12px;height:12px;"></i>
+                                                </button>
+                                            </div>
+                                        </template>
+                                        <template x-if="file.status === 'new'">
+                                            <span class="text-xs text-muted">Pending</span>
+                                        </template>
+                                    </div>
+                                </td>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </template>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         API KEY HEALTH (shown when there are issues)
+         ═══════════════════════════════════════════════════════ -->
+    <template x-if="apiKeys.exhausted > 0">
+        <div class="panel" style="margin-bottom: var(--space-4); border-color: var(--warning);">
+            <div class="panel-header">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="alert-triangle" style="width:16px;height:16px;color:var(--warning);"></i>
+                    <span class="panel-title">API Key Issues</span>
+                </div>
+                <button class="btn btn-sm btn-secondary" @click="resetExhaustedKeys()">
+                    Reset Exhausted Keys
+                </button>
+            </div>
+            <div class="panel-content">
+                <div class="key-grid">
+                    <template x-for="key in apiKeys.keys" :key="key.id">
+                        <div class="key-card" :class="{ 'key-exhausted': key.is_exhausted, 'key-active': key.is_active && !key.is_exhausted }">
+                            <div class="flex items-center gap-2">
+                                <span class="status-dot" :class="key.is_exhausted ? 'failed' : (key.is_active ? 'active' : 'pending')"></span>
+                                <span class="text-sm font-medium" x-text="key.name"></span>
+                            </div>
+                            <div class="text-xs text-muted" x-text="key.is_exhausted ? 'Quota exhausted' : (key.is_active ? 'Active' : 'Disabled')"></div>
+                            <template x-if="key.last_error">
+                                <div class="text-xs file-error" x-text="truncateError(key.last_error, 60)"></div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SECTION C: ACTIVITY LOG
+         ═══════════════════════════════════════════════════════ -->
+    <div class="panel">
+        <div class="panel-header" style="cursor:pointer;" @click="activityExpanded = !activityExpanded">
+            <div class="flex items-center gap-2">
+                <i data-lucide="terminal" style="width:16px;height:16px;color:var(--text-tertiary);"></i>
+                <span class="panel-title">Activity Log</span>
+                <span class="text-xs text-muted" x-text="recentActivity.length + ' entries'"></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <template x-if="failedFiles.length > 0">
+                    <button class="btn btn-sm btn-ghost" @click.stop="clearFailed()" style="color:var(--warning);">
+                        Clear Failed
+                    </button>
+                </template>
+                <i data-lucide="chevron-down" style="width:14px;height:14px;transition:transform 0.15s;" :style="activityExpanded ? '' : 'transform:rotate(-90deg)'"></i>
+            </div>
+        </div>
+        
+        <div x-show="activityExpanded" x-transition>
+            <template x-if="recentActivity.length === 0">
+                <div class="empty-state" style="padding: var(--space-6);">
+                    <p class="text-sm text-muted">No processing activity yet</p>
+                    <p class="text-xs text-muted">Files placed in the ingest folder will appear here</p>
+                </div>
+            </template>
+            <template x-if="recentActivity.length > 0">
+                <div class="activity-log">
+                    <template x-for="entry in recentActivity" :key="entry.id || entry.created_at">
+                        <div class="log-entry" :class="['log-' + entry.status, entry.status === 'completed' && entry.id ? 'clickable-row' : '']"
+                             @click="entry.status === 'completed' && entry.id ? window.location='/v2/registry-note/' + entry.id : null">
+                            <!-- Timestamp -->
+                            <span class="log-time" x-text="formatTimestamp(entry.created_at)"></span>
+                            
+                            <!-- Status icon -->
+                            <span class="log-icon">
+                                <template x-if="entry.status === 'completed'">
+                                    <span style="color:var(--success);">&#10003;</span>
+                                </template>
+                                <template x-if="entry.status === 'failed'">
+                                    <span style="color:var(--error);">&#10007;</span>
+                                </template>
+                            </span>
+                            
+                            <!-- Content -->
+                            <div class="log-content">
+                                <span class="log-filename" x-text="entry.filename"></span>
+                                <template x-if="entry.mode">
+                                    <span class="log-mode" x-text="entry.mode"></span>
+                                </template>
+                                <template x-if="entry.title && entry.status === 'completed'">
+                                    <span class="log-title" x-text="'→ ' + entry.title"></span>
+                                </template>
+                                <template x-if="entry.error && entry.status === 'failed'">
+                                    <span class="log-error" x-text="truncateError(entry.error, 100)"></span>
+                                </template>
+                                <template x-if="entry.retry_count > 0">
+                                    <span class="log-retry" x-text="'(retry #' + entry.retry_count + ')'"></span>
+                                </template>
+                            </div>
+                            
+                            <!-- Duration -->
+                            <template x-if="entry.duration">
+                                <span class="log-duration" x-text="formatDuration(entry.duration)"></span>
+                            </template>
+                            
+                            <!-- Open link for completed -->
+                            <template x-if="entry.status === 'completed' && entry.id">
+                                <a :href="'/v2/registry-note/' + entry.id" class="log-action-btn" title="Open note" @click.stop>
+                                    <i data-lucide="external-link" style="width:12px; height:12px;"></i>
+                                </a>
+                            </template>
+
+                            <!-- Actions for failed -->
+                            <template x-if="entry.status === 'failed' && entry.file_hash">
+                                <div class="log-actions">
+                                    <button class="log-action-btn" @click.stop="retryFile(entry.file_hash)" title="Retry">
+                                        <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
+                                    </button>
+                                    <button class="log-action-btn" @click.stop="skipFile(entry.file_hash)" title="Skip">
+                                        <i data-lucide="x" style="width:12px; height:12px;"></i>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block status_left %}
+<span x-data="{ s: {} }" 
+      @system-status.window="s = $event.detail"
+      x-text="(s.stats ? s.stats.total_notes : {{ stats.total_notes or 0 }}) + ' processed · ' + 
+              (s.stats ? s.stats.failed : {{ stats.failed or 0 }}) + ' failed · ' +
+              (s.config ? s.config.model : '{{ config.model }}')">
+</span>
+{% endblock %}

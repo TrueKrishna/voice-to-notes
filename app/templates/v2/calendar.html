@@ -1,0 +1,151 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Calendar — L1{% endblock %}
+
+{% block content %}
+<div x-data="calendarView()">
+
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Calendar</h1>
+            <p class="page-subtitle">Daily and weekly processing history</p>
+        </div>
+    </div>
+
+    <!-- Month Navigation -->
+    <div class="cal-nav">
+        <button class="btn btn-sm btn-secondary" @click="prevMonth()">&larr;</button>
+        <span class="cal-month-label" x-text="monthLabel"></span>
+        <button class="btn btn-sm btn-secondary" @click="nextMonth()">&rarr;</button>
+        <button class="btn btn-sm btn-ghost" @click="goToday()">Today</button>
+    </div>
+
+    <!-- Calendar Grid -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="cal-grid">
+            <!-- Day headers -->
+            <template x-for="d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']">
+                <div class="cal-header" x-text="d"></div>
+            </template>
+            <!-- Day cells -->
+            <template x-for="cell in calendarCells" :key="cell.key">
+                <div class="cal-cell" 
+                     :class="{ 
+                        'cal-today': cell.isToday, 
+                        'cal-other-month': !cell.inMonth,
+                        'cal-has-notes': cell.count > 0,
+                        'cal-selected': selectedDay === cell.date
+                     }"
+                     :style="cell.count > 0 ? 'background:' + heatColor(cell.count) : ''"
+                     @click="cell.inMonth && selectDay(cell.date)">
+                    <span class="cal-day-num" x-text="cell.day"></span>
+                    <template x-if="cell.count > 0">
+                        <span class="cal-count" x-text="cell.count"></span>
+                    </template>
+                    <template x-if="cell.failed > 0">
+                        <span class="cal-failed-dot"></span>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <template x-if="loading">
+        <div class="empty-state" style="padding: var(--space-4);">
+            <p class="text-sm text-muted">Loading calendar data...</p>
+        </div>
+    </template>
+
+    <!-- Weekly Rollups -->
+    <template x-if="weeklyRollups.length > 0">
+        <div class="panel" style="margin-bottom: var(--space-4);">
+            <div class="panel-header">
+                <span class="panel-title">Weekly Summaries</span>
+            </div>
+            <div class="panel-content">
+                <template x-for="w in weeklyRollups" :key="w.filename">
+                    <div class="log-entry">
+                        <span class="log-icon" style="color:var(--accent);">📅</span>
+                        <span class="text-sm font-medium" x-text="w.title || w.filename"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+
+    <!-- Selected Day Details -->
+    <template x-if="selectedDay">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="calendar" style="width:16px;height:16px;color:var(--accent);"></i>
+                    <span class="panel-title" x-text="selectedDay"></span>
+                    <template x-if="selectedDayData.rollup">
+                        <span class="file-badge badge-completed">ROLLUP</span>
+                    </template>
+                </div>
+                <span class="text-xs text-muted" x-text="(selectedDayData.notes || []).length + ' notes'"></span>
+            </div>
+
+            <!-- Daily Rollup Summary -->
+            <template x-if="selectedDayData.rollup">
+                <div class="panel-content" style="border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-3);">
+                    <p class="text-sm" style="color:var(--success);" x-text="'📊 ' + selectedDayData.rollup.title"></p>
+                </div>
+            </template>
+
+            <!-- Notes for this day -->
+            <template x-if="(selectedDayData.notes || []).length > 0">
+                <div class="activity-log">
+                    <template x-for="note in selectedDayData.notes" :key="note.id">
+                        <div class="log-entry clickable-row" :class="note.success ? 'log-completed' : 'log-failed'"
+                             @click="note.id ? window.location='/v2/registry-note/' + note.id : null">
+                            <span class="log-time" x-text="note.processed_at ? note.processed_at.substring(11, 19) : ''"></span>
+                            <span class="log-icon">
+                                <template x-if="note.success"><span style="color:var(--success);">&#10003;</span></template>
+                                <template x-if="!note.success"><span style="color:var(--error);">&#10007;</span></template>
+                            </span>
+                            <div class="log-content">
+                                <span class="log-filename" x-text="note.filename"></span>
+                                <template x-if="note.mode">
+                                    <span class="log-mode" x-text="note.mode"></span>
+                                </template>
+                                <template x-if="note.title && note.success">
+                                    <span class="log-title" x-text="'→ ' + note.title"></span>
+                                </template>
+                                <template x-if="note.error && !note.success">
+                                    <span class="log-error" x-text="note.error.substring(0, 100) + (note.error.length > 100 ? '...' : '')"></span>
+                                </template>
+                            </div>
+                            <template x-if="note.duration_seconds">
+                                <span class="log-duration" x-text="Math.floor(note.duration_seconds / 60) + ':' + ('0' + Math.floor(note.duration_seconds % 60)).slice(-2)"></span>
+                            </template>
+                            <template x-if="note.id">
+                                <span class="btn-icon" style="flex-shrink:0;">↗</span>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- No notes -->
+            <template x-if="(selectedDayData.notes || []).length === 0">
+                <div class="empty-state" style="padding: var(--space-6);">
+                    <p class="text-sm text-muted">No notes processed on this day</p>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    <!-- No day selected -->
+    <template x-if="!selectedDay && !loading">
+        <div class="panel">
+            <div class="empty-state" style="padding: var(--space-6);">
+                <p class="text-sm text-muted">Click a day on the calendar to see processing details</p>
+            </div>
+        </div>
+    </template>
+
+</div>
+{% endblock %}

@@ -1,0 +1,185 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Projects — L1{% endblock %}
+
+{% block head %}
+<script>window.__projectsData = {{ projects | tojson }};</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="projectView(window.__projectsData)">
+
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Projects</h1>
+            <p class="page-subtitle">
+                <template x-if="projectCount > 0">
+                    <span><span x-text="projectCount"></span> projects, </span>
+                </template>
+                <span x-text="modeCount + ' modes, ' + totalNotes + ' notes'"></span>
+            </p>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-primary" @click="showCreateModal = true">
+                <i data-lucide="folder-plus" style="width: 16px; height: 16px;"></i>
+                New Project
+            </button>
+        </div>
+    </div>
+
+    <!-- Create Project Modal -->
+    <template x-if="showCreateModal">
+        <div class="modal-backdrop" @click.self="showCreateModal = false">
+            <div class="modal-content" @click.stop>
+                <h3 class="text-lg font-semibold" style="margin-bottom: var(--space-4);">Create New Project</h3>
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="text-sm text-secondary" style="display: block; margin-bottom: var(--space-2);">Project Name</label>
+                    <input type="text" class="input" placeholder="e.g., Research, Work, Personal" x-model="newProjectName" @keydown.enter="createProject()" autofocus>
+                    <p class="text-xs text-muted" style="margin-top: var(--space-2);">A folder will be created in your Obsidian vault at VoiceNotes/Projects/</p>
+                </div>
+                <template x-if="createError">
+                    <p class="text-sm" style="color: var(--error); margin-bottom: var(--space-3);" x-text="createError"></p>
+                </template>
+                <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+                    <button class="btn btn-ghost" @click="showCreateModal = false; createError = '';">Cancel</button>
+                    <button class="btn btn-primary" @click="createProject()" :disabled="!newProjectName.trim() || creating">
+                        <template x-if="creating"><span>Creating...</span></template>
+                        <template x-if="!creating">Create Project</template>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template x-if="projects.length === 0">
+        <div class="panel">
+            <div class="empty-state" style="padding: var(--space-8);">
+                <i data-lucide="folder-open" style="width:48px; height:48px; color:var(--text-muted); margin-bottom:var(--space-3);"></i>
+                <p class="text-sm text-muted">No projects yet</p>
+                <p class="text-xs text-muted" style="margin-bottom: var(--space-4);">Create a project to organize your notes</p>
+                <button class="btn btn-primary" @click="showCreateModal = true">
+                    <i data-lucide="folder-plus" style="width: 16px; height: 16px;"></i>
+                    Create Your First Project
+                </button>
+            </div>
+        </div>
+    </template>
+
+    <!-- User-assigned Projects -->
+    <template x-if="projectCount > 0">
+        <div style="margin-bottom:var(--space-4);">
+            <h2 class="text-sm text-muted" style="margin-bottom:var(--space-2); font-weight:500;">User Projects</h2>
+            <div class="project-grid">
+                <template x-for="proj in projects.filter(p => p.kind === 'project')" :key="'proj-' + proj.name">
+                    <div class="panel project-card" :class="{'project-expanded': isExpanded(proj)}" @click="toggle(proj)">
+                        <div class="project-card-header">
+                            <div class="project-icon" :style="'background:' + getColor(proj)">
+                                <span x-text="getIcon(proj)"></span>
+                            </div>
+                            <div class="project-info">
+                                <span class="project-name" x-text="formatName(proj)"></span>
+                                <span class="text-xs text-muted" x-text="proj.count + ' notes'"></span>
+                            </div>
+                            <div style="margin-left:auto; display:flex; align-items:center; gap:var(--space-2);">
+                                <span class="text-xs text-muted" x-text="proj.latest || ''"></span>
+                                <button class="btn btn-ghost btn-icon sm" @click.stop="confirmDelete(proj)" title="Delete project" style="opacity:0.5;">
+                                    <i data-lucide="trash-2" style="width:12px; height:12px;"></i>
+                                </button>
+                                <i data-lucide="chevron-down" style="width:14px; height:14px; transition:transform .2s;" :style="isExpanded(proj) ? 'transform:rotate(180deg)' : ''"></i>
+                            </div>
+                        </div>
+                        <template x-if="isExpanded(proj)">
+                            <div class="project-notes" @click.stop>
+                                <template x-for="note in expandedNotes" :key="note.id">
+                                    <div class="project-note-row">
+                                        <a :href="'/v2/registry-note/' + note.id" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); flex:1; min-width:0;">
+                                            <span class="log-icon">
+                                                <template x-if="note.success"><span style="color:var(--success);">&#10003;</span></template>
+                                                <template x-if="!note.success"><span style="color:var(--error);">&#10007;</span></template>
+                                            </span>
+                                            <div class="project-note-info">
+                                                <span class="text-sm" x-text="note.title || note.filename"></span>
+                                                <span class="text-xs text-muted" x-text="note.processed_at"></span>
+                                            </div>
+                                        </a>
+                                    </div>
+                                </template>
+                                <template x-if="expandedNotes.length === 0">
+                                    <div class="text-sm text-muted" style="padding: var(--space-4); text-align: center;">
+                                        No notes in this project yet
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+
+    <!-- Processing Modes -->
+    <template x-if="modeCount > 0">
+        <div>
+            <h2 class="text-sm text-muted" style="margin-bottom:var(--space-2); font-weight:500;">By Processing Mode</h2>
+            <div class="project-grid">
+                <template x-for="proj in projects.filter(p => p.kind === 'mode')" :key="'mode-' + proj.name">
+                    <div class="panel project-card" :class="{'project-expanded': isExpanded(proj)}" @click="toggle(proj)">
+                        <div class="project-card-header">
+                            <div class="project-icon" :style="'background:' + getColor(proj)">
+                                <span x-text="getIcon(proj)"></span>
+                            </div>
+                            <div class="project-info">
+                                <span class="project-name" x-text="formatName(proj)"></span>
+                                <span class="text-xs text-muted" x-text="proj.count + ' notes'"></span>
+                            </div>
+                            <div style="margin-left:auto; display:flex; align-items:center; gap:var(--space-2);">
+                                <span class="text-xs text-muted" x-text="proj.latest || ''"></span>
+                                <i data-lucide="chevron-down" style="width:14px; height:14px; transition:transform .2s;" :style="isExpanded(proj) ? 'transform:rotate(180deg)' : ''"></i>
+                            </div>
+                        </div>
+                        <template x-if="isExpanded(proj)">
+                            <div class="project-notes" @click.stop>
+                                <template x-for="note in expandedNotes" :key="note.id">
+                                    <div class="project-note-row">
+                                        <a :href="'/v2/registry-note/' + note.id" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); flex:1; min-width:0;">
+                                            <span class="log-icon">
+                                                <template x-if="note.success"><span style="color:var(--success);">&#10003;</span></template>
+                                                <template x-if="!note.success"><span style="color:var(--error);">&#10007;</span></template>
+                                            </span>
+                                            <div class="project-note-info">
+                                                <span class="text-sm" x-text="note.title || note.filename"></span>
+                                                <span class="text-xs text-muted" x-text="note.processed_at"></span>
+                                            </div>
+                                        </a>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+
+</div>
+
+<style>
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.modal-content {
+    background: var(--bg-elevated);
+    border-radius: 12px;
+    padding: var(--space-6);
+    max-width: 400px;
+    width: 90%;
+    border: 1px solid var(--border-subtle);
+}
+</style>
+{% endblock %}

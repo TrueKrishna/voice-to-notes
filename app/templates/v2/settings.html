@@ -1,0 +1,501 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Settings — L1{% endblock %}
+
+{% block content %}
+<div x-data="{
+    settings: {
+        LOCAL_SYNC_AUDIO_DIR: '{{ settings.LOCAL_SYNC_AUDIO_DIR }}',
+        OBSIDIAN_VAULT_DIR: '{{ settings.OBSIDIAN_VAULT_DIR }}',
+        OBSIDIAN_NOTE_SUBDIR: '{{ settings.OBSIDIAN_NOTE_SUBDIR }}',
+        PROCESSING_MODE: '{{ settings.PROCESSING_MODE }}',
+        GEMINI_MODEL: '{{ settings.GEMINI_MODEL }}',
+        TRANSCRIPTION_ENGINE: '{{ settings.TRANSCRIPTION_ENGINE | default("gemini") }}',
+        OPENAI_API_KEY: '{{ settings.OPENAI_API_KEY }}',
+        STABILITY_SECONDS: '{{ settings.STABILITY_SECONDS }}',
+        SCAN_INTERVAL: '{{ settings.SCAN_INTERVAL }}',
+        AUDIO_BITRATE: '{{ settings.AUDIO_BITRATE }}',
+        FILENAME_DATE_FORMAT: '{{ settings.FILENAME_DATE_FORMAT | default("DD_MM_YY") }}'
+    },
+    saving: false,
+    saveSuccess: false,
+    saveError: null,
+    showAdvanced: false,
+    
+    browserOpen: false,
+    browserPath: '/data/gdrive',
+    browserDirs: [],
+    browserParent: null,
+    browserLoading: false,
+    browserError: null,
+    browserTarget: null,
+    
+    async save() {
+        this.saving = true;
+        this.saveSuccess = false;
+        this.saveError = null;
+        
+        const formData = new FormData();
+        for (const [key, value] of Object.entries(this.settings)) {
+            formData.append(key, value);
+        }
+        
+        try {
+            const res = await fetch('/settings/save', { method: 'POST', body: formData });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Save failed');
+            }
+            this.saveSuccess = true;
+            setTimeout(() => this.saveSuccess = false, 5000);
+        } catch (err) {
+            this.saveError = err.message;
+        } finally {
+            this.saving = false;
+        }
+    },
+    
+    openBrowser(targetField) {
+        this.browserTarget = targetField;
+        this.browserPath = '/data/gdrive';
+        this.browserOpen = true;
+        this.browseTo('/data/gdrive');
+    },
+    
+    async browseTo(path) {
+        this.browserLoading = true;
+        this.browserError = null;
+        this.browserDirs = [];
+        
+        try {
+            const resp = await fetch('/settings/browse?path=' + encodeURIComponent(path));
+            const data = await resp.json();
+            
+            if (!data.exists) {
+                this.browserError = 'Directory not found. Is Google Drive mounted?';
+                this.browserPath = path;
+                return;
+            }
+            
+            this.browserPath = data.path;
+            this.browserDirs = data.dirs;
+            this.browserParent = data.parent;
+        } catch (err) {
+            this.browserError = err.message;
+        } finally {
+            this.browserLoading = false;
+        }
+    },
+    
+    selectCurrentFolder() {
+        if (this.browserTarget) {
+            this.settings[this.browserTarget] = this.browserPath;
+        }
+        this.browserOpen = false;
+    }
+}">
+    
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Settings</h1>
+            <p class="page-subtitle">Configure the voice processing pipeline</p>
+        </div>
+        <div class="page-actions">
+            <span x-show="saveSuccess" class="text-sm" style="color: var(--status-success);">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px; display: inline;"></i>
+                Saved! Watcher will pick up changes.
+            </span>
+            <span x-show="saveError" class="text-sm" style="color: var(--status-failed);" x-text="saveError"></span>
+            <button class="btn btn-primary" @click="save()" :disabled="saving">
+                <i data-lucide="save" style="width: 16px; height: 16px;"></i>
+                <span x-text="saving ? 'Saving...' : 'Save Settings'"></span>
+            </button>
+        </div>
+    </div>
+    
+    {% if watcher_stats %}
+    <!-- Watcher Status -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header">
+            <span class="panel-title">Watcher Status</span>
+            <span class="status-dot active"></span>
+        </div>
+        <div class="panel-content">
+            <div class="grid" style="grid-template-columns: repeat(4, 1fr); gap: var(--space-4);">
+                <div>
+                    <p class="text-xs text-muted font-medium">Total Processed</p>
+                    <p class="text-xl font-semibold">{{ watcher_stats.total }}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-muted font-medium">Successful</p>
+                    <p class="text-xl font-semibold" style="color: var(--status-success);">{{ watcher_stats.success }}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-muted font-medium">Failed</p>
+                    <p class="text-xl font-semibold" style="color: var(--status-failed);">{{ watcher_stats.failed }}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-muted font-medium">Last Processed</p>
+                    <p class="text-sm text-secondary">{{ watcher_stats.last_processed }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Folder Configuration -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header">
+            <span class="panel-title">Folder Configuration</span>
+        </div>
+        <div class="panel-content">
+            <p class="text-sm text-muted" style="margin-bottom: var(--space-4);">
+                Select the directories the watcher should monitor. Click Browse to navigate to your Google Drive folders.
+            </p>
+            
+            <div class="flex flex-col gap-4">
+                <!-- Audio Input Directory -->
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Audio Input Directory <span style="color: var(--status-failed);">*</span>
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Where your voice recorder saves audio files (synced via Google Drive)
+                    </p>
+                    <div class="flex gap-2">
+                        <input type="text" 
+                               class="input" 
+                               style="flex: 1; font-family: monospace;"
+                               x-model="settings.LOCAL_SYNC_AUDIO_DIR"
+                               readonly
+                               placeholder="Click Browse to select...">
+                        <button class="btn btn-secondary" @click="openBrowser('LOCAL_SYNC_AUDIO_DIR')">
+                            <i data-lucide="folder-open" style="width: 16px; height: 16px;"></i>
+                            Browse
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Obsidian Vault Directory -->
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Obsidian Vault Directory <span style="color: var(--status-failed);">*</span>
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Root of your Obsidian vault (also synced via Google Drive)
+                    </p>
+                    <div class="flex gap-2">
+                        <input type="text" 
+                               class="input" 
+                               style="flex: 1; font-family: monospace;"
+                               x-model="settings.OBSIDIAN_VAULT_DIR"
+                               readonly
+                               placeholder="Click Browse to select...">
+                        <button class="btn btn-secondary" @click="openBrowser('OBSIDIAN_VAULT_DIR')">
+                            <i data-lucide="folder-open" style="width: 16px; height: 16px;"></i>
+                            Browse
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Note Subfolder -->
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Notes Subfolder
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Subfolder within the vault for voice notes
+                    </p>
+                    <input type="text" 
+                           class="input" 
+                           style="max-width: 300px;"
+                           x-model="settings.OBSIDIAN_NOTE_SUBDIR"
+                           placeholder="VoiceNotes">
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4);">
+        
+        <!-- AI Model -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">AI Model</span>
+            </div>
+            <div class="panel-content">
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">Gemini Model</label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        AI model for structuring notes (always Gemini)
+                    </p>
+                    <select class="input" x-model="settings.GEMINI_MODEL">
+                        {% for value, label in models %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Processing Mode -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Processing Mode</span>
+            </div>
+            <div class="panel-content">
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">Default Mode</label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Used when audio isn't in a mode-specific subfolder
+                    </p>
+                    <select class="input" x-model="settings.PROCESSING_MODE">
+                        {% for value, label in modes %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-muted" style="margin-top: var(--space-2);">
+                        <a href="/v2/prompts" class="text-accent" style="text-decoration: underline;">View/edit processing prompts →</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- Transcription Engine -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header">
+            <span class="panel-title">Transcription Engine</span>
+        </div>
+        <div class="panel-content">
+            <div class="grid" style="grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">Engine</label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Choose which AI converts your audio to text
+                    </p>
+                    <select class="input" x-model="settings.TRANSCRIPTION_ENGINE">
+                        {% for value, label in transcription_engines %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-muted" style="margin-top: var(--space-2);">
+                        <template x-if="settings.TRANSCRIPTION_ENGINE === 'gemini'">
+                            <span>Uses the Gemini model selected above for transcription.</span>
+                        </template>
+                        <template x-if="settings.TRANSCRIPTION_ENGINE === 'whisper-1'">
+                            <span>OpenAI Whisper — fast, affordable, great for most audio. 25MB file limit.</span>
+                        </template>
+                        <template x-if="settings.TRANSCRIPTION_ENGINE === 'gpt-4o-transcribe'">
+                            <span>GPT-4o Transcribe — premium quality, same engine as ChatGPT's mic button. 25MB file limit.</span>
+                        </template>
+                    </p>
+                </div>
+                <div x-show="settings.TRANSCRIPTION_ENGINE !== 'gemini'" x-transition>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        OpenAI API Key <span style="color: var(--status-failed);">*</span>
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Required for Whisper / GPT-4o Transcribe — <a href="https://platform.openai.com/api-keys" target="_blank" class="text-accent" style="text-decoration: underline;">Get one here</a>
+                    </p>
+                    <input type="password" 
+                           class="input" 
+                           style="font-family: monospace;"
+                           x-model="settings.OPENAI_API_KEY"
+                           placeholder="sk-...">
+                    <p class="text-xs" style="margin-top: var(--space-1);"
+                       :class="settings.OPENAI_API_KEY ? 'text-accent' : 'text-muted'"
+                       x-text="settings.OPENAI_API_KEY ? '✓ Key configured' : 'No key set'">
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Advanced Settings (collapsed by default) -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-header" style="cursor: pointer;" @click="showAdvanced = !showAdvanced">
+            <span class="panel-title">
+                <i data-lucide="chevron-right" style="width: 16px; height: 16px; display: inline; transition: transform 0.2s;" :style="showAdvanced ? 'transform: rotate(90deg)' : ''"></i>
+                Advanced Settings
+            </span>
+            <span class="text-xs text-muted">Usually don't need to change these</span>
+        </div>
+        <div class="panel-content" x-show="showAdvanced" x-collapse>
+            <div class="grid" style="grid-template-columns: repeat(3, 1fr); gap: var(--space-4);">
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        File Stability Wait (seconds)
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Wait for file to stop changing before processing
+                    </p>
+                    <input type="number" class="input" x-model="settings.STABILITY_SECONDS" min="3" max="120">
+                </div>
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Scan Interval (seconds)
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        How often to check for new audio files
+                    </p>
+                    <input type="number" class="input" x-model="settings.SCAN_INTERVAL" min="2" max="60">
+                </div>
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Audio Compression Bitrate
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Lower = smaller files, higher = better quality
+                    </p>
+                    <select class="input" x-model="settings.AUDIO_BITRATE">
+                        <option value="32k">32 kbps (smallest)</option>
+                        <option value="48k">48 kbps (recommended)</option>
+                        <option value="64k">64 kbps</option>
+                        <option value="96k">96 kbps (best quality)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-muted font-medium" style="display: block; margin-bottom: var(--space-1);">
+                        Filename Date Format
+                    </label>
+                    <p class="text-xs text-muted" style="margin-bottom: var(--space-2);">
+                        Date format used in generated note filenames
+                    </p>
+                    <select class="input" x-model="settings.FILENAME_DATE_FORMAT">
+                        <option value="DD_MM_YY">DD_MM_YY (25_01_25)</option>
+                        <option value="YYYY-MM-DD">YYYY-MM-DD (2025-01-25)</option>
+                        <option value="MM-DD-YYYY">MM-DD-YYYY (01-25-2025)</option>
+                        <option value="YYMMDD">YYMMDD (250125)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- How It Works -->
+    <div class="panel" style="border-color: var(--accent);">
+        <div class="panel-header">
+            <span class="panel-title" style="color: var(--accent);">
+                <i data-lucide="info" style="width: 16px; height: 16px; display: inline;"></i>
+                How It Works
+            </span>
+        </div>
+        <div class="panel-content">
+            <ul class="text-sm text-secondary" style="list-style: none; padding: 0; margin: 0;">
+                <li style="margin-bottom: var(--space-2);">
+                    <i data-lucide="check" style="width: 14px; height: 14px; display: inline; color: var(--accent); margin-right: var(--space-2);"></i>
+                    The watcher scans the Audio Input Directory for new audio files every few seconds
+                </li>
+                <li style="margin-bottom: var(--space-2);">
+                    <i data-lucide="check" style="width: 14px; height: 14px; display: inline; color: var(--accent); margin-right: var(--space-2);"></i>
+                    Files are processed once stable (fully synced from Google Drive)
+                </li>
+                <li style="margin-bottom: var(--space-2);">
+                    <i data-lucide="check" style="width: 14px; height: 14px; display: inline; color: var(--accent); margin-right: var(--space-2);"></i>
+                    Each audio file is compressed, transcribed via Gemini AI, and structured into a markdown note
+                </li>
+                <li style="margin-bottom: var(--space-2);">
+                    <i data-lucide="check" style="width: 14px; height: 14px; display: inline; color: var(--accent); margin-right: var(--space-2);"></i>
+                    Notes are saved to <strong>Obsidian Vault / Subfolder / YYYY / MM /</strong> with YAML frontmatter
+                </li>
+                <li>
+                    <i data-lucide="check" style="width: 14px; height: 14px; display: inline; color: var(--accent); margin-right: var(--space-2);"></i>
+                    Settings changes are picked up automatically — no restart needed
+                </li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Folder Browser Modal -->
+    <div x-show="browserOpen" 
+         x-cloak
+         style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100;"
+         @keydown.escape.window="browserOpen = false">
+        <div class="panel" style="width: 100%; max-width: 500px; margin: var(--space-4);" @click.away="browserOpen = false">
+            <div class="panel-header">
+                <span class="panel-title">
+                    <i data-lucide="folder-tree" style="width: 16px; height: 16px; display: inline;"></i>
+                    Select Folder
+                </span>
+                <button @click="browserOpen = false" style="background: none; border: none; cursor: pointer; color: var(--text-muted);">
+                    <i data-lucide="x" style="width: 20px; height: 20px;"></i>
+                </button>
+            </div>
+            
+            <div style="padding: var(--space-3); background: var(--bg-overlay); border-bottom: 1px solid var(--border-subtle);">
+                <code class="text-sm" x-text="browserPath" style="color: var(--text-secondary);"></code>
+            </div>
+            
+            <div style="max-height: 300px; overflow-y: auto;">
+                <!-- Parent directory -->
+                <button x-show="browserParent"
+                        @click="browseTo(browserParent)"
+                        style="width: 100%; padding: var(--space-3); display: flex; align-items: center; gap: var(--space-2); background: none; border: none; border-bottom: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-secondary);"
+                        class="hover:bg-overlay">
+                    <i data-lucide="corner-left-up" style="width: 16px; height: 16px;"></i>
+                    <span>..</span>
+                </button>
+                
+                <!-- Subdirectories -->
+                <template x-for="dir in browserDirs" :key="dir">
+                    <button @click="browseTo(browserPath + '/' + dir)"
+                            style="width: 100%; padding: var(--space-3); display: flex; align-items: center; gap: var(--space-2); background: none; border: none; border-bottom: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-primary); text-align: left;"
+                            class="hover:bg-overlay">
+                        <i data-lucide="folder" style="width: 16px; height: 16px; color: var(--status-pending);"></i>
+                        <span x-text="dir"></span>
+                    </button>
+                </template>
+                
+                <div x-show="browserDirs.length === 0 && !browserLoading && !browserError"
+                     style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                    <i data-lucide="folder" style="width: 32px; height: 32px; margin-bottom: var(--space-2);"></i>
+                    <p>No subdirectories</p>
+                </div>
+                
+                <div x-show="browserLoading"
+                     style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+                    <i data-lucide="loader" style="width: 24px; height: 24px;" class="animate-spin"></i>
+                </div>
+                
+                <div x-show="browserError"
+                     style="padding: var(--space-4); color: var(--status-failed);">
+                    <i data-lucide="alert-circle" style="width: 16px; height: 16px; display: inline;"></i>
+                    <span x-text="browserError"></span>
+                </div>
+            </div>
+            
+            <div style="padding: var(--space-4); border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <span class="text-xs text-muted">Select the current folder or navigate deeper</span>
+                <div class="flex gap-2">
+                    <button class="btn btn-secondary" @click="browserOpen = false">Cancel</button>
+                    <button class="btn btn-primary" @click="selectCurrentFolder()">
+                        <i data-lucide="check" style="width: 16px; height: 16px;"></i>
+                        Select This Folder
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+<style>
+.hover\:bg-overlay:hover {
+    background: var(--bg-overlay);
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+</style>
+{% endblock %}
+
+{% block status_left %}
+Configuration
+{% endblock %}

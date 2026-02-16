@@ -1,0 +1,233 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Inbox — L1{% endblock %}
+
+{% block head %}
+<script>window.__inboxNotes = {{ notes | tojson }};
+window.__filterTag = {{ filter_tag | tojson }};</script>
+{% endblock %}
+
+{% block content %}
+<div x-data="noteList(window.__inboxNotes, window.__filterTag)">
+    
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Inbox</h1>
+            <p class="page-subtitle">
+                <span x-text="filteredNotes.length"></span> notes
+                <template x-if="tagFilter">
+                    <span> tagged <strong x-text="'#' + tagFilter"></strong>
+                        <button @click="clearTagFilter()" class="text-muted" style="background:none; border:none; cursor:pointer; margin-left:4px; font-size:0.75rem;">&times;</button>
+                    </span>
+                </template>
+            </p>
+        </div>
+        <div class="page-actions">
+            <div class="input-group" style="width: 280px;">
+                <span class="input-icon">
+                    <i data-lucide="search" style="width: 16px; height: 16px;"></i>
+                </span>
+                <input type="text" 
+                       class="input" 
+                       placeholder="Search notes... (/)" 
+                       x-model="searchQuery"
+                       data-search-input>
+            </div>
+            <button class="btn btn-secondary" @click="$dispatch('open-upload')">
+                <i data-lucide="upload" style="width: 16px; height: 16px;"></i>
+                Upload
+            </button>
+        </div>
+    </div>
+    
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <button class="filter-tab" :class="{ 'active': filter === 'all' }" @click="filter = 'all'">
+            All
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'completed' }" @click="filter = 'completed'">
+            Processed
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'pending' }" @click="filter = 'pending'">
+            Pending
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'processing' }" @click="filter = 'processing'">
+            Processing
+        </button>
+        <button class="filter-tab" :class="{ 'active': filter === 'failed' }" @click="filter = 'failed'">
+            Failed
+        </button>
+    </div>
+    
+    <!-- Split View: List + Detail Preview -->
+    <div class="split-view" style="height: calc(100vh - 240px);">
+        
+        <!-- Note List -->
+        <div class="split-primary">
+            <div class="panel" style="height: 100%; display: flex; flex-direction: column;">
+                <div style="flex: 1; overflow-y: auto;">
+                    
+                    <template x-if="filteredNotes.length === 0">
+                        <div class="empty-state">
+                            <i data-lucide="inbox" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: var(--space-4);"></i>
+                            <p class="empty-state-title">No notes found</p>
+                            <p class="empty-state-text">
+                                <template x-if="searchQuery">
+                                    Try a different search term
+                                </template>
+                                <template x-if="!searchQuery && filter !== 'all'">
+                                    No notes with this status
+                                </template>
+                                <template x-if="!searchQuery && filter === 'all'">
+                                    Upload audio files to create notes
+                                </template>
+                            </p>
+                            <button class="btn btn-primary" style="margin-top: var(--space-4);" @click="$dispatch('open-upload')">
+                                <i data-lucide="upload" style="width: 16px; height: 16px;"></i>
+                                Upload Audio
+                            </button>
+                        </div>
+                    </template>
+                    
+                    <template x-for="note in filteredNotes" :key="note.id">
+                        <div class="list-item" 
+                             style="position:relative;"
+                             :class="{ 'selected': selectedId === note.id }"
+                             @click="select(note)">
+                            <div class="list-item-content">
+                                <div class="list-item-title" x-text="note.title || note.filename || 'Untitled'"></div>
+                                <div class="list-item-preview" x-text="note.preview || note.filename || 'No content'"></div>
+                                <div class="list-item-meta">
+                                    <span class="status-dot" :class="note.status === 'completed' ? 'active' : note.status === 'failed' ? 'failed' : note.status === 'processing' ? 'processing' : 'pending'"></span>
+                                    <span x-text="note.status"></span>
+                                    <span>·</span>
+                                    <span x-text="timeAgo(note.processed_at || note.created_at)"></span>
+                                    <template x-if="note.duration">
+                                        <span>· <span x-text="formatDuration(note.duration)"></span></span>
+                                    </template>
+                                    <template x-if="note.mode">
+                                        <span>· <span x-text="note.mode.replace(/_/g, ' ')"></span></span>
+                                    </template>
+                                </div>
+                            </div>
+                            <a :href="note.link || ('/v2/note/' + note.id)" 
+                               class="btn btn-secondary btn-sm" 
+                               title="Open note" 
+                               @click.stop
+                               style="flex-shrink:0; padding: 6px 12px; font-size: 0.75rem; gap: 4px;">
+                                Open
+                                <i data-lucide="arrow-up-right" style="width: 12px; height: 12px;"></i>
+                            </a>
+                        </div>
+                    </template>
+                    
+                </div>
+            </div>
+        </div>
+        
+        <!-- Preview Panel -->
+        <div class="split-secondary">
+            <div class="panel" style="height: 100%; display: flex; flex-direction: column;">
+                
+                <template x-if="!selectedId">
+                    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: var(--space-8);">
+                        <i data-lucide="file-text" style="width: 40px; height: 40px; color: var(--text-muted); margin-bottom: var(--space-3); opacity: 0.5;"></i>
+                        <p class="text-sm text-secondary" style="margin-bottom: var(--space-1);">Select a note</p>
+                        <p class="text-xs text-muted">Click on a note to preview its contents</p>
+                    </div>
+                </template>
+                
+                <template x-if="selectedId">
+                    <div x-data="{ 
+                        get note() { return filteredNotes.find(n => n.id === selectedId); },
+                        loading: false,
+                        get rendered() {
+                            const c = this.note?.content || '';
+                            if (!c) return '';
+                            if (typeof marked !== 'undefined') {
+                                try {
+                                    let text = c;
+                                    if (text.startsWith('---')) { const end = text.indexOf('---', 3); if (end !== -1) text = text.substring(end + 3).trim(); }
+                                    return marked.parse(text);
+                                } catch(e) { console.warn('marked error', e); }
+                            }
+                            const d = document.createElement('div');
+                            d.textContent = c;
+                            return '<pre style=\"white-space:pre-wrap;\">' + d.innerHTML + '</pre>';
+                        }
+                    }" style="display: flex; flex-direction: column; height: 100%;">
+                        
+                        <!-- Preview Header -->
+                        <div class="panel-header" style="gap: var(--space-3);">
+                            <div style="min-width:0; flex:1;">
+                                <h3 class="text-md font-semibold" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="note?.title || note?.filename || 'Untitled'"></h3>
+                                <div style="display:flex; align-items:center; gap:var(--space-2); margin-top:2px;">
+                                    <span class="file-badge" :class="note?.status === 'completed' ? 'badge-completed' : note?.status === 'failed' ? 'badge-failed' : 'badge-new'" x-text="note?.status || 'pending'" style="font-size:0.5625rem;"></span>
+                                    <template x-if="note?.mode"><span class="log-mode" style="font-size:0.5625rem;" x-text="note.mode"></span></template>
+                                    <span class="text-xs text-muted" x-text="formatDate(note?.created_at)"></span>
+                                    <template x-if="note?.duration">
+                                        <span class="text-xs text-muted" x-text="formatDuration(note.duration)"></span>
+                                    </template>
+                                </div>
+                            </div>
+                            <a :href="note?.link || ('/v2/note/' + note?.id)" 
+                               class="btn btn-sm btn-secondary"
+                               style="border-radius:6px; gap:var(--space-1); font-size:0.6875rem; padding:4px 10px;"
+                               @click.stop>
+                                Open
+                                <i data-lucide="arrow-up-right" style="width: 12px; height: 12px;"></i>
+                            </a>
+                        </div>
+                        
+                        <!-- Audio Player -->
+                        <template x-if="note?.audio_url">
+                            <div style="padding:var(--space-2) var(--space-4); border-bottom: 1px solid var(--border-subtle);" 
+                                 x-data="audioPlayer(note.audio_url)">
+                                <div class="audio-player" style="border:none; padding:0; background:transparent;">
+                                    <button class="audio-play-btn" @click="toggle()" style="width:28px; height:28px;">
+                                        <i :data-lucide="playing ? 'pause' : 'play'" style="width: 14px; height: 14px;"></i>
+                                    </button>
+                                    <div class="audio-progress" @click="seek($event)">
+                                        <div class="audio-progress-fill" :style="'width: ' + progress + '%'"></div>
+                                    </div>
+                                    <div class="audio-time" style="font-size:0.625rem;">
+                                        <span x-text="formatTime(currentTime)"></span>/<span x-text="formatTime(duration)"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <!-- Content Preview (Markdown) -->
+                        <div class="panel-content" style="flex: 1; overflow-y: auto;">
+                            <template x-if="note?.content">
+                                <div class="md-content" style="font-size:0.8125rem; line-height:1.65;" x-html="rendered"></div>
+                            </template>
+                            <template x-if="!note?.content && note?.transcript">
+                                <div class="text-sm text-secondary" style="white-space: pre-wrap; line-height: 1.6;" 
+                                     x-text="note.transcript"></div>
+                            </template>
+                            <template x-if="!note?.content && !note?.transcript">
+                                <div class="empty-state" style="padding:var(--space-6);">
+                                    <p class="text-sm text-muted">No content available</p>
+                                    <template x-if="note?.source === 'registry'">
+                                        <p class="text-xs text-muted" style="margin-top:6px;">Click "Open" to view full details</p>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                        
+                    </div>
+                </template>
+                
+            </div>
+        </div>
+        
+    </div>
+    
+</div>
+{% endblock %}
+
+{% block status_left %}
+{{ notes | length }} notes in inbox
+{% endblock %}

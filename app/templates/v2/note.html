@@ -1,0 +1,308 @@
+{% extends "v2/base.html" %}
+
+{% block title %}{{ note.title or 'Note' }} — L1{% endblock %}
+
+{% block content %}
+<div x-data="{
+    note: {{ note | tojson | default('{}') }},
+    editing: false,
+    saving: false
+}">
+    
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="flex items-center gap-3">
+            <a href="/v2/inbox" class="btn btn-ghost btn-icon" title="Back to Inbox">
+                <i data-lucide="arrow-left" style="width: 18px; height: 18px;"></i>
+            </a>
+            <div>
+                <template x-if="!editing">
+                    <h1 class="page-title" x-text="note.title || note.filename || 'Untitled'" @dblclick="editing = true"></h1>
+                </template>
+                <template x-if="editing">
+                    <input type="text" 
+                           class="input" 
+                           style="font-size: var(--text-xl); font-weight: var(--font-semibold); padding: 0; border: none; background: transparent;"
+                           x-model="note.title"
+                           @blur="editing = false; saveTitle()"
+                           @keydown.enter="editing = false; saveTitle()"
+                           x-ref="titleInput"
+                           x-init="$watch('editing', value => value && $nextTick(() => $refs.titleInput.focus()))">
+                </template>
+                <p class="page-subtitle">
+                    <span class="status-dot" :class="note.status" style="display: inline-block; vertical-align: middle;"></span>
+                    <span x-text="note.status"></span>
+                    <span>•</span>
+                    <span x-text="formatDate(note.created_at)"></span>
+                    <template x-if="note.duration">
+                        <span>• <span x-text="formatDuration(note.duration)"></span></span>
+                    </template>
+                </p>
+            </div>
+        </div>
+        <div class="page-actions">
+            <button class="btn btn-ghost" title="Archive">
+                <i data-lucide="archive" style="width: 16px; height: 16px;"></i>
+            </button>
+            <button class="btn btn-ghost" title="Delete" style="color: var(--status-failed);">
+                <i data-lucide="trash" style="width: 16px; height: 16px;"></i>
+            </button>
+            <template x-if="note.obsidian_path">
+                <a class="btn btn-secondary" :href="'obsidian://open?path=' + encodeURIComponent(note.obsidian_path)" target="_blank">
+                    <i data-lucide="external-link" style="width: 16px; height: 16px;"></i>
+                    Open in Obsidian
+                </a>
+            </template>
+            <template x-if="note.status === 'pending' || note.status === 'failed'">
+                <button class="btn btn-primary" @click="reprocess()">
+                    <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                    Reprocess
+                </button>
+            </template>
+        </div>
+    </div>
+    
+    <!-- Main Content Grid -->
+    <div class="grid" style="grid-template-columns: 2fr 1fr; gap: var(--space-4);">
+        
+        <!-- Left Column: Audio + Content -->
+        <div class="flex flex-col gap-4">
+            
+            <!-- Audio Player -->
+            <template x-if="note.audio_url">
+                <div class="panel" x-data="audioPlayer(note.audio_url)">
+                    <div class="panel-header">
+                        <span class="panel-title">Audio Recording</span>
+                        <span class="text-xs text-muted" x-text="formatTime(duration)"></span>
+                    </div>
+                    <div class="panel-content">
+                        <div class="audio-player">
+                            <button class="audio-play-btn" @click="toggle()">
+                                <i :data-lucide="playing ? 'pause' : 'play'" style="width: 16px; height: 16px;"></i>
+                            </button>
+                            <div class="audio-progress" @click="seek($event)">
+                                <div class="audio-progress-fill" :style="'width: ' + progress + '%'"></div>
+                            </div>
+                            <div class="audio-time">
+                                <span x-text="formatTime(currentTime)"></span>
+                                <span>/</span>
+                                <span x-text="formatTime(duration)"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Transcript/Content -->
+            <div class="panel" style="flex: 1;">
+                <div class="panel-header">
+                    <span class="panel-title">Content</span>
+                    <div class="flex items-center gap-2">
+                        <button class="btn btn-ghost btn-sm" @click="copyContent()">
+                            <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
+                            Copy
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <template x-if="note.content">
+                        <div class="text-sm" style="white-space: pre-wrap; line-height: 1.75;" x-html="formatContent(note.content)"></div>
+                    </template>
+                    <template x-if="!note.content && note.transcript">
+                        <div>
+                            <p class="text-xs text-muted font-medium" style="margin-bottom: var(--space-2); text-transform: uppercase; letter-spacing: 0.05em;">Raw Transcript</p>
+                            <div class="text-sm text-secondary" style="white-space: pre-wrap; line-height: 1.6;" x-text="note.transcript"></div>
+                        </div>
+                    </template>
+                    <template x-if="!note.content && !note.transcript">
+                        <div class="empty-state" style="padding: var(--space-8);">
+                            <p class="text-sm text-muted">No content available</p>
+                            <p class="text-xs text-muted" style="margin-top: var(--space-2);">Process the audio to generate content</p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+        </div>
+        
+        <!-- Right Column: Metadata -->
+        <div class="flex flex-col gap-4">
+            
+            <!-- Tags -->
+            <div class="panel" x-data="tagPicker(note.tags || [])">
+                <div class="panel-header">
+                    <span class="panel-title">Tags</span>
+                </div>
+                <div class="panel-content">
+                    <div class="flex gap-1" style="flex-wrap: wrap; margin-bottom: var(--space-2);">
+                        <template x-for="tag in tags" :key="tag">
+                            <span class="tag">
+                                <span x-text="tag"></span>
+                                <button class="tag-remove" @click="removeTag(tag)">
+                                    <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                                </button>
+                            </span>
+                        </template>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" 
+                               class="input" 
+                               placeholder="Add tag..." 
+                               x-model="input"
+                               @input.debounce.300ms="fetchSuggestions()"
+                               @keydown="handleKeydown($event)"
+                               @focus="showSuggestions = suggestions.length > 0"
+                               @blur.debounce.200ms="showSuggestions = false">
+                    </div>
+                    <template x-if="showSuggestions">
+                        <div class="panel" style="position: absolute; width: 100%; margin-top: var(--space-1); z-index: 10;">
+                            <template x-for="suggestion in suggestions" :key="suggestion">
+                                <div class="list-item" style="padding: var(--space-2);" @mousedown.prevent="addTag(suggestion)">
+                                    <span x-text="suggestion"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Tasks -->
+            <div class="panel" x-data="taskList(note.tasks || [])">
+                <div class="panel-header">
+                    <span class="panel-title">Tasks</span>
+                    <span class="text-xs text-muted">
+                        <span x-text="stats.completed"></span>/<span x-text="stats.total"></span>
+                    </span>
+                </div>
+                <div class="panel-content" style="max-height: 300px; overflow-y: auto;">
+                    <template x-if="tasks.length === 0">
+                        <div class="empty-state" style="padding: var(--space-4);">
+                            <p class="text-xs text-muted">No tasks extracted</p>
+                        </div>
+                    </template>
+                    <template x-for="task in tasks" :key="task.id">
+                        <div class="task-item">
+                            <div class="task-checkbox" 
+                                 :class="{ 'checked': task.completed }"
+                                 @click="toggle(task)">
+                                <template x-if="task.completed">
+                                    <i data-lucide="check" style="width: 10px; height: 10px; color: white;"></i>
+                                </template>
+                            </div>
+                            <div class="task-content">
+                                <div class="task-text" :class="{ 'completed': task.completed }" x-text="task.text"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Metadata -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">Metadata</span>
+                </div>
+                <div class="panel-content">
+                    <dl style="display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-3); font-size: var(--text-xs);">
+                        <dt class="text-muted">Created</dt>
+                        <dd class="text-secondary" x-text="new Date(note.created_at).toLocaleString()"></dd>
+                        
+                        <template x-if="note.processed_at">
+                            <dt class="text-muted">Processed</dt>
+                            <dd class="text-secondary" x-text="new Date(note.processed_at).toLocaleString()"></dd>
+                        </template>
+                        
+                        <template x-if="note.filename">
+                            <dt class="text-muted">Filename</dt>
+                            <dd class="text-secondary truncate" x-text="note.filename"></dd>
+                        </template>
+                        
+                        <template x-if="note.duration">
+                            <dt class="text-muted">Duration</dt>
+                            <dd class="text-secondary" x-text="formatDuration(note.duration)"></dd>
+                        </template>
+                        
+                        <template x-if="note.source">
+                            <dt class="text-muted">Source</dt>
+                            <dd class="text-secondary" x-text="note.source"></dd>
+                        </template>
+                        
+                        <template x-if="note.obsidian_path">
+                            <dt class="text-muted">Obsidian</dt>
+                            <dd class="text-secondary truncate" x-text="note.obsidian_path"></dd>
+                        </template>
+                    </dl>
+                </div>
+            </div>
+            
+            <!-- Processing Log -->
+            <template x-if="note.processing_log && note.processing_log.length > 0">
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title">Processing Log</span>
+                    </div>
+                    <div class="panel-content" style="max-height: 200px; overflow-y: auto;">
+                        <template x-for="log in note.processing_log" :key="log.timestamp">
+                            <div style="padding: var(--space-1) 0; border-bottom: 1px solid var(--border-subtle);">
+                                <div class="text-xs text-muted" x-text="new Date(log.timestamp).toLocaleTimeString()"></div>
+                                <div class="text-xs" :class="log.level === 'error' ? 'text-accent' : 'text-secondary'" x-text="log.message"></div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+            
+        </div>
+        
+    </div>
+    
+</div>
+
+<script>
+function formatContent(content) {
+    // Simple markdown-like formatting
+    return content
+        .replace(/^### (.+)$/gm, '<h3 class="text-md font-semibold" style="margin-top: var(--space-4); margin-bottom: var(--space-2);">$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold" style="margin-top: var(--space-4); margin-bottom: var(--space-2);">$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1 class="text-xl font-semibold" style="margin-top: var(--space-4); margin-bottom: var(--space-2);">$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/^- (.+)$/gm, '<li style="margin-left: var(--space-4);">$1</li>')
+        .replace(/\n/g, '<br>');
+}
+
+function copyContent() {
+    const content = this.note.content || this.note.transcript || '';
+    navigator.clipboard.writeText(content)
+        .then(() => Alpine.store('toast').success('Content copied'))
+        .catch(() => Alpine.store('toast').error('Failed to copy'));
+}
+
+async function saveTitle() {
+    try {
+        await fetch(`/v2/api/notes/${this.note.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: this.note.title })
+        });
+        Alpine.store('toast').success('Title saved');
+    } catch (err) {
+        Alpine.store('toast').error('Failed to save title');
+    }
+}
+
+async function reprocess() {
+    try {
+        await fetch(`/v2/api/notes/${this.note.id}/reprocess`, { method: 'POST' });
+        Alpine.store('toast').success('Queued for reprocessing');
+        this.note.status = 'pending';
+    } catch (err) {
+        Alpine.store('toast').error('Failed to queue');
+    }
+}
+</script>
+{% endblock %}
+
+{% block status_left %}
+Note: {{ note.title or note.filename or 'Untitled' }}
+{% endblock %}
