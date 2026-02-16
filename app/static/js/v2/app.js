@@ -308,11 +308,11 @@ document.addEventListener('alpine:init', function() {
                 });
             },
             
-            createAndAssignProject: function() {
+            createAndAssignProject: function(projectName) {
                 var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
                 if (!note || note.source !== 'registry') return;
                 
-                var projectName = (note.newProject || '').trim();
+                projectName = (projectName || '').trim();
                 if (!projectName) return;
                 
                 var self = this;
@@ -324,9 +324,6 @@ document.addEventListener('alpine:init', function() {
                 
                 // Assign the project
                 this.assignProject(projectName);
-                
-                // Clear input
-                note.newProject = '';
             },
             
             toast: function(msg) {
