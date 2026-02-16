@@ -1941,28 +1941,24 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
         raise HTTPException(status_code=404, detail="Registry not found")
     
     # Get the current note info
-    conn = sqlite3.connect(str(registry_path))
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT note_path, success FROM processed_files WHERE id = ?", (note_id,)
-    ).fetchone()
-    
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    if not row["success"]:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Cannot rename failed or pending notes")
-    
-    old_path_str = row["note_path"]
-    if not old_path_str:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Note path not found in registry")
+    with sqlite3.connect(str(registry_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT note_path, success FROM processed_files WHERE id = ?", (note_id,)
+        ).fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Note not found")
+        
+        if not row["success"]:
+            raise HTTPException(status_code=400, detail="Cannot rename failed or pending notes")
+        
+        old_path_str = row["note_path"]
+        if not old_path_str:
+            raise HTTPException(status_code=404, detail="Note path not found in registry")
     
     old_path = Path(old_path_str)
     if not old_path.exists():
-        conn.close()
         raise HTTPException(status_code=404, detail="Note file not found on disk")
     
     # Sanitize the new slug
@@ -1977,7 +1973,6 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
     new_slug = new_slug.lower()
     
     if not new_slug:
-        conn.close()
         raise HTTPException(status_code=400, detail="Invalid slug: cannot be empty after sanitization")
     
     # Parse the old filename to extract the timestamp prefix
@@ -1993,7 +1988,6 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
         match = re.match(r'^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)$', old_filename)
     
     if not match:
-        conn.close()
         raise HTTPException(
             status_code=400, 
             detail="Filename format not recognized. Expected YYYY-MM-DD_HH-MM_slug or YYYY_MM_DD_HH_MM_slug format"
@@ -2007,7 +2001,6 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
     
     # Check for conflicts
     if new_path.exists() and new_path != old_path:
-        conn.close()
         raise HTTPException(
             status_code=409, 
             detail=f"A note with this name already exists: {new_filename}"
@@ -2016,29 +2009,27 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
     # Perform the rename
     try:
         os.rename(old_path, new_path)
-    except Exception as e:
-        conn.close()
+    except OSError as e:
         logger.error(f"Failed to rename file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}")
     
     # Update the registry
-    try:
-        conn.execute(
-            "UPDATE processed_files SET note_path = ? WHERE id = ?",
-            (str(new_path), note_id)
-        )
-        conn.commit()
-    except Exception as e:
-        # Try to rollback the filesystem rename
+    with sqlite3.connect(str(registry_path)) as conn:
         try:
-            os.rename(new_path, old_path)
-        except:
-            pass
-        conn.close()
-        logger.error(f"Failed to update registry: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update registry: {str(e)}")
-    
-    conn.close()
+            conn.execute(
+                "UPDATE processed_files SET note_path = ? WHERE id = ?",
+                (str(new_path), note_id)
+            )
+            conn.commit()
+        except Exception as e:
+            # Try to rollback the filesystem rename
+            try:
+                os.rename(new_path, old_path)
+            except OSError:
+                # If rollback fails, log it but don't raise - the primary error is more important
+                logger.error(f"Failed to rollback filesystem rename after registry update failure")
+            logger.error(f"Failed to update registry: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to update registry: {str(e)}")
     
     return {
         "success": True,

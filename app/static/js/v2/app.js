@@ -1111,20 +1111,51 @@ window.formatTimestamp = function(isoStr) {
 // ============================================================================
 // TOAST NOTIFICATION SYSTEM
 // ============================================================================
+
+// Add CSS for toast notifications
+if (!document.getElementById('toast-styles')) {
+    var style = document.createElement('style');
+    style.id = 'toast-styles';
+    style.textContent = `
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 12px 16px;
+            z-index: 10000;
+            min-width: 200px;
+            max-width: 400px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            animation: slideIn 0.2s ease-out;
+        }
+        .toast-success {
+            border-color: var(--success);
+            color: var(--success);
+        }
+        .toast-error {
+            border-color: var(--error);
+            color: var(--error);
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 window.showToast = function(message, type) {
     type = type || 'success';
     var toast = document.createElement('div');
     toast.className = 'toast toast-' + type;
     toast.textContent = message;
-    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:12px 16px;z-index:10000;min-width:200px;max-width:400px;box-shadow:0 4px 16px rgba(0,0,0,0.3);animation:slideIn 0.2s ease-out;';
-    
-    if (type === 'success') {
-        toast.style.borderColor = 'var(--success)';
-        toast.style.color = 'var(--success)';
-    } else if (type === 'error') {
-        toast.style.borderColor = 'var(--error)';
-        toast.style.color = 'var(--error)';
-    }
     
     document.body.appendChild(toast);
     
@@ -1136,17 +1167,32 @@ window.showToast = function(message, type) {
     }, 3000);
 };
 
-// Add CSS animations for toast
-if (!document.getElementById('toast-styles')) {
-    var style = document.createElement('style');
-    style.id = 'toast-styles';
-    style.textContent = '@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }';
-    document.head.appendChild(style);
-}
-
 // ============================================================================
 // INLINE RENAME COMPONENT
 // ============================================================================
+
+/**
+ * Sanitize a slug for use in filenames
+ * - Removes invalid filesystem characters: / \ : ? * < > |
+ * - Replaces whitespace with hyphens
+ * - Removes leading/trailing hyphens
+ * - Converts to lowercase
+ */
+window.sanitizeSlug = function(slug) {
+    if (!slug) return '';
+    
+    // Remove invalid filesystem characters
+    slug = slug.replace(/[\/\\:?*<>|]/g, '');
+    // Replace consecutive whitespace with single hyphen
+    slug = slug.replace(/\s+/g, '-');
+    // Remove leading/trailing hyphens
+    slug = slug.replace(/^-+|-+$/g, '');
+    // Convert to lowercase
+    slug = slug.toLowerCase();
+    
+    return slug;
+};
+
 window.initRename = function(noteId, currentFilename, onSuccess) {
     return {
         noteId: noteId,
@@ -1219,8 +1265,8 @@ window.initRename = function(noteId, currentFilename, onSuccess) {
                 return;
             }
             
-            // Sanitize on frontend (server will also sanitize)
-            newSlug = newSlug.replace(/[\/\\:?*<>|]/g, '').replace(/\s+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+            // Sanitize slug using the helper function
+            newSlug = window.sanitizeSlug(newSlug);
             
             if (!newSlug) {
                 self.error = 'Invalid characters';
