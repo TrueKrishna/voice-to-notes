@@ -73,8 +73,8 @@ class EngineConfig:
     )
     
     # Filename format settings
-    # Supported: "DD_MM_YY", "YYYY-MM-DD", "MM-DD-YYYY", "YYMMDD"
-    filename_date_format: str = "DD_MM_YY"
+    # Supported: "DD_MM_YY", "YYYY-MM-DD", "MM-DD-YYYY", "YYMMDD", "YYYY-MM-DD_HH-MM"
+    filename_date_format: str = "YYYY-MM-DD_HH-MM"
 
     @property
     def notes_output_dir(self) -> Path:

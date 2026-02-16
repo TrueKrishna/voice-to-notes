@@ -1107,3 +1107,208 @@ window.formatTimestamp = function(isoStr) {
     var d = new Date(isoStr);
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 };
+
+// ============================================================================
+// TOAST NOTIFICATION SYSTEM
+// ============================================================================
+
+// Add CSS for toast notifications
+if (!document.getElementById('toast-styles')) {
+    var style = document.createElement('style');
+    style.id = 'toast-styles';
+    style.textContent = `
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 12px 16px;
+            z-index: 10000;
+            min-width: 200px;
+            max-width: 400px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            animation: slideIn 0.2s ease-out;
+        }
+        .toast-success {
+            border-color: var(--success);
+            color: var(--success);
+        }
+        .toast-error {
+            border-color: var(--error);
+            color: var(--error);
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+window.showToast = function(message, type) {
+    type = type || 'success';
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.textContent = message;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(function() {
+        toast.style.animation = 'slideOut 0.2s ease-in';
+        setTimeout(function() { 
+            if (toast.parentNode) toast.parentNode.removeChild(toast); 
+        }, 200);
+    }, 3000);
+};
+
+// ============================================================================
+// INLINE RENAME COMPONENT
+// ============================================================================
+
+/**
+ * Sanitize a slug for use in filenames
+ * - Removes invalid filesystem characters: / \ : ? * < > |
+ * - Replaces whitespace with hyphens
+ * - Removes leading/trailing hyphens
+ * - Converts to lowercase
+ */
+window.sanitizeSlug = function(slug) {
+    if (!slug) return '';
+    
+    // Remove invalid filesystem characters
+    slug = slug.replace(/[\/\\:?*<>|]/g, '');
+    // Replace consecutive whitespace with single hyphen
+    slug = slug.replace(/\s+/g, '-');
+    // Remove leading/trailing hyphens
+    slug = slug.replace(/^-+|-+$/g, '');
+    // Convert to lowercase
+    slug = slug.toLowerCase();
+    
+    return slug;
+};
+
+window.initRename = function(noteId, currentFilename, onSuccess) {
+    return {
+        noteId: noteId,
+        currentFilename: currentFilename,
+        isEditing: false,
+        editingSlug: '',
+        timestampPrefix: '',
+        error: '',
+        saving: false,
+        onSuccess: onSuccess || function() {},
+        
+        init: function() {
+            this.parseFilename();
+        },
+        
+        parseFilename: function() {
+            // Parse YYYY-MM-DD_HH-MM_slug.md format (new)
+            var match = this.currentFilename.match(/^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_(.+)\.md$/);
+            if (match) {
+                this.timestampPrefix = match[1];
+                this.editingSlug = match[2];
+                return;
+            }
+            
+            // Parse YYYY_MM_DD_HH_MM_slug.md format (old)
+            match = this.currentFilename.match(/^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)\.md$/);
+            if (match) {
+                this.timestampPrefix = match[1];
+                this.editingSlug = match[2];
+                return;
+            }
+            
+            // Fallback: treat entire filename as slug if no timestamp pattern matched
+            console.warn('Filename does not match expected timestamp format:', this.currentFilename);
+            this.timestampPrefix = '';
+            this.editingSlug = this.currentFilename.replace('.md', '');
+        },
+        
+        startEdit: function() {
+            this.isEditing = true;
+            this.error = '';
+            var self = this;
+            this.$nextTick(function() {
+                var input = self.$el.querySelector('.rename-input');
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            });
+        },
+        
+        cancelEdit: function() {
+            this.isEditing = false;
+            this.error = '';
+            this.parseFilename();
+        },
+        
+        confirmEdit: function() {
+            var self = this;
+            if (self.saving) return;
+            
+            var newSlug = self.editingSlug.trim();
+            if (!newSlug) {
+                self.error = 'Slug cannot be empty';
+                return;
+            }
+            
+            // Sanitize slug using the helper function
+            newSlug = window.sanitizeSlug(newSlug);
+            
+            if (!newSlug) {
+                self.error = 'Invalid characters';
+                return;
+            }
+            
+            self.saving = true;
+            self.error = '';
+            
+            fetch('/v2/api/registry/' + self.noteId + '/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_slug: newSlug })
+            })
+            .then(function(res) {
+                if (!res.ok) {
+                    return res.json().then(function(err) {
+                        throw new Error(err.detail || 'Rename failed');
+                    });
+                }
+                return res.json();
+            })
+            .then(function(data) {
+                self.currentFilename = data.new_filename;
+                self.isEditing = false;
+                self.parseFilename();
+                window.showToast('Renamed successfully', 'success');
+                if (self.onSuccess) self.onSuccess(data);
+            })
+            .catch(function(err) {
+                self.error = err.message;
+                if (err.message.includes('already exists')) {
+                    self.error = 'Name already exists';
+                }
+                window.showToast(self.error, 'error');
+            })
+            .finally(function() {
+                self.saving = false;
+            });
+        },
+        
+        handleKeydown: function(e) {
+            if (e.key === 'Enter') {
+                this.confirmEdit();
+            } else if (e.key === 'Escape') {
+                this.cancelEdit();
+            }
+        }
+    };
+};
