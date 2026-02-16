@@ -5,7 +5,7 @@ Supports SQLite (default) or PostgreSQL.
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -22,6 +22,14 @@ if DATABASE_URL.startswith("postgres://"):
 # Create engine
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    
+    # Enable WAL mode for crash safety and better concurrent access
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 else:
     engine = create_engine(DATABASE_URL)
 

@@ -73,6 +73,9 @@ For each audio file, generates two markdown files:
 git clone https://github.com/yourusername/voice-to-notes.git
 cd voice-to-notes
 
+# Run first-time setup
+./setup.sh
+
 # Start the application
 docker-compose up -d
 
@@ -153,19 +156,39 @@ open http://localhost:8000
 
 ## 🐳 Docker Deployment
 
+### First-Run Setup
+
+Before starting the application for the first time, run the setup script:
+
+```bash
+./setup.sh
+```
+
+This will:
+- Create the data directory structure (default: `~/voice-notes-data`)
+- Set up your `.env` file with required configuration
+- Explain where data lives and what's safe to do
+
 ### Volumes
-Data is persisted in Docker volumes:
+
+Data is stored **outside the project folder** for maximum safety:
+
 ```yaml
 volumes:
-  voice_notes_data:  # SQLite DB + uploaded files
+  - ${DATA_DIR:-~/voice-notes-data}:/app/data  # SQLite DBs + uploads
+  - ${GDRIVE_MOUNT_PATH}:/data/gdrive         # Google Drive mount
 ```
+
+**No Docker named volumes** are used — everything is bind-mounted. This means `docker-compose down -v` is **completely safe** and won't delete your data.
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `DATA_DIR` | Host path for persistent data | `~/voice-notes-data` |
+| `GDRIVE_MOUNT_PATH` | Path to Google Drive folder | Required |
+| `GEMINI_API_KEYS` | Comma-separated API keys | Required |
 | `DATABASE_URL` | Database connection string | `sqlite:///./data/voice_notes.db` |
-| `GEMINI_API_KEY` | Pre-set API key (optional) | - |
 
 ### View Logs
 ```bash
@@ -176,6 +199,122 @@ docker-compose logs -f
 ```bash
 docker-compose up --build -d
 ```
+
+---
+
+## 💾 Data & Storage
+
+### Where Your Data Lives
+
+By default, all your voice notes data is stored in:
+```
+~/voice-notes-data/
+├── voice_notes.db           # Main database (recordings, API keys, settings)
+├── engine/
+│   └── registry.db          # Processing registry (watcher tracking)
+├── uploads/                 # Uploaded audio files
+└── backups/                 # Database backups (created by backup.sh)
+```
+
+This location is **outside your project folder**, which means:
+- ✅ Your data survives `rm -rf voice-to-notes` (deleting project folder)
+- ✅ Your data survives `git clean -fdx` (cleaning git repo)
+- ✅ Your data survives switching branches, re-cloning the repo
+- ✅ You can safely develop, test, and experiment without risking data loss
+
+### What's Safe
+
+These operations **will NOT delete your data**:
+
+```bash
+✅ docker-compose down              # Stop containers
+✅ docker-compose down -v           # Stop and remove volumes (no named volumes exist)
+✅ docker system prune              # Clean up Docker resources
+✅ docker volume prune              # Remove unused volumes (none are named)
+✅ rm -rf voice-to-notes            # Delete project folder
+✅ git clean -fdx                   # Clean git working directory
+✅ git checkout different-branch    # Switch branches
+✅ git clone (on another machine)   # Re-clone repository
+```
+
+### What's NOT Safe
+
+Only these operations can delete your data:
+
+```bash
+❌ rm -rf ~/voice-notes-data        # Delete data directory
+❌ rm ~/voice-notes-data/*.db       # Delete databases
+❌ docker exec voice-to-notes rm -rf /app/data  # Delete from inside container
+```
+
+### Custom Data Location
+
+To use a different data directory:
+
+1. Set `DATA_DIR` in your `.env` file:
+   ```bash
+   DATA_DIR=/path/to/your/data
+   ```
+
+2. Or export as environment variable:
+   ```bash
+   export DATA_DIR=/path/to/your/data
+   docker-compose up -d
+   ```
+
+### Backup Your Data
+
+Run the backup script regularly to create hot backups (safe while app is running):
+
+```bash
+./backup.sh
+```
+
+This creates timestamped backups in `~/voice-notes-data/backups/` and automatically keeps only the last 5 backups to prevent disk space issues.
+
+**Backup files:**
+- `voice_notes_YYYYMMDD_HHMMSS.db` - Main database backup
+- `registry_YYYYMMDD_HHMMSS.db` - Registry database backup
+
+### Restore from Backup
+
+```bash
+# 1. Stop the application
+docker-compose down
+
+# 2. Copy the backup file
+cp ~/voice-notes-data/backups/voice_notes_20260216_143000.db ~/voice-notes-data/voice_notes.db
+
+# 3. Start the application
+docker-compose up -d
+```
+
+### Migrate to Another Machine
+
+To move your data to a new machine:
+
+```bash
+# On old machine
+tar -czf voice-notes-backup.tar.gz ~/voice-notes-data
+
+# Copy to new machine, then:
+tar -xzf voice-notes-backup.tar.gz -C ~/
+
+# Clone repo on new machine
+git clone https://github.com/yourusername/voice-to-notes.git
+cd voice-to-notes
+
+# Start the application
+docker-compose up -d
+```
+
+### Database Technology
+
+Both databases use **SQLite with WAL mode** for:
+- ✅ **Crash safety**: Survives unclean Docker shutdowns
+- ✅ **Better concurrency**: Multiple readers + single writer
+- ✅ **Hot backups**: Safe to backup while app is running
+- ✅ **No maintenance**: No vacuum, reindex, or optimization needed
 
 ---
 

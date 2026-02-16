@@ -8,7 +8,7 @@ services:
     ports:
       - "9123:8000"
     volumes:
-      - voice_notes_data:/app/data
+      - ${DATA_DIR:-~/voice-notes-data}:/app/data
       # Broad Google Drive mount — user picks subdirectories in Settings UI
       - ${GDRIVE_MOUNT_PATH:-./_placeholder_gdrive}:/data/gdrive
     environment:
@@ -29,7 +29,7 @@ services:
     container_name: voice-to-notes-watcher
     command: python run_watcher.py
     volumes:
-      - voice_notes_data:/app/data
+      - ${DATA_DIR:-~/voice-notes-data}:/app/data
       # Same broad mount — watcher reads paths from DB Settings
       - ${GDRIVE_MOUNT_PATH:-./_placeholder_gdrive}:/data/gdrive
     environment:
@@ -47,9 +47,8 @@ services:
       app:
         condition: service_healthy
 
-volumes:
-  voice_notes_data:
-    driver: local
+# No named volumes needed - using bind mounts for data persistence
+# Data is stored outside the repo at ~/voice-notes-data by default
 
 # ============================================================================
 # Optional: PostgreSQL instead of SQLite (uncomment to use)

@@ -105,7 +105,11 @@ class ProcessingRegistry:
             """, (datetime.utcnow().isoformat(),))
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(str(self.db_path))
+        # Enable WAL mode for crash safety and better concurrent access
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
 
     @staticmethod
     def compute_hash(file_path: Path) -> str:
