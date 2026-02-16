@@ -1163,21 +1163,30 @@ window.initRename = function(noteId, currentFilename, onSuccess) {
         },
         
         parseFilename: function() {
-            // Parse YYYY_MM_DD_HH_MM_slug.md format
-            var match = this.currentFilename.match(/^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)\.md$/);
+            // Parse YYYY-MM-DD_HH-MM_slug.md format (new)
+            var match = this.currentFilename.match(/^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_(.+)\.md$/);
             if (match) {
                 this.timestampPrefix = match[1];
                 this.editingSlug = match[2];
+                return;
+            }
+            
+            // Parse YYYY_MM_DD_HH_MM_slug.md format (old)
+            match = this.currentFilename.match(/^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)\.md$/);
+            if (match) {
+                this.timestampPrefix = match[1];
+                this.editingSlug = match[2];
+                return;
+            }
+            
+            // Fallback: try to find any timestamp-like prefix
+            var parts = this.currentFilename.replace('.md', '').split('_');
+            if (parts.length >= 5) {
+                this.timestampPrefix = parts.slice(0, 5).join('_');
+                this.editingSlug = parts.slice(5).join('_');
             } else {
-                // Fallback: try to find any timestamp-like prefix
-                var parts = this.currentFilename.replace('.md', '').split('_');
-                if (parts.length >= 5) {
-                    this.timestampPrefix = parts.slice(0, 5).join('_');
-                    this.editingSlug = parts.slice(5).join('_');
-                } else {
-                    this.timestampPrefix = '';
-                    this.editingSlug = this.currentFilename.replace('.md', '');
-                }
+                this.timestampPrefix = '';
+                this.editingSlug = this.currentFilename.replace('.md', '');
             }
         },
         

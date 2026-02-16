@@ -1983,21 +1983,23 @@ async def api_rename_note(note_id: int, rename_data: NoteRename):
     # Parse the old filename to extract the timestamp prefix
     old_filename = old_path.stem  # without .md extension
     
-    # Expected format: YYYY_MM_DD_HH_MM_slug
-    # Find the timestamp prefix (first 16 chars: YYYY_MM_DD_HH_MM)
-    # The timestamp format is: 2026_02_16_14_30 (16 characters)
-    if len(old_filename) < 17 or old_filename[16] != '_':
-        # Try to match the pattern more flexibly
+    # Expected format: YYYY-MM-DD_HH-MM_slug
+    # Find the timestamp prefix (first 16 chars: YYYY-MM-DD_HH-MM)
+    # The timestamp format is: 2026-02-16_14-30 (16 characters)
+    # Try multiple patterns to support both old and new formats
+    match = re.match(r'^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_(.+)$', old_filename)
+    if not match:
+        # Try alternative format: YYYY_MM_DD_HH_MM
         match = re.match(r'^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)$', old_filename)
-        if not match:
-            conn.close()
-            raise HTTPException(
-                status_code=400, 
-                detail="Filename format not recognized. Expected YYYY_MM_DD_HH_MM_slug format"
-            )
-        timestamp_prefix = match.group(1)
-    else:
-        timestamp_prefix = old_filename[:16]  # YYYY_MM_DD_HH_MM
+    
+    if not match:
+        conn.close()
+        raise HTTPException(
+            status_code=400, 
+            detail="Filename format not recognized. Expected YYYY-MM-DD_HH-MM_slug or YYYY_MM_DD_HH_MM_slug format"
+        )
+    
+    timestamp_prefix = match.group(1)
     
     # Build new filename with locked timestamp prefix
     new_filename = f"{timestamp_prefix}_{new_slug}.md"
