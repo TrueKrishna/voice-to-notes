@@ -87,7 +87,7 @@ def _read_v2_registry(limit: int = 100):
             CASE WHEN success = 1 THEN 'completed' 
                  WHEN success = 0 THEN 'failed'
                  ELSE 'pending' END as status,
-            processed_at as created_at,
+            COALESCE(ingested_at, processed_at) as created_at,
             duration_seconds as duration,
             note_path,
             error,
@@ -99,7 +99,7 @@ def _read_v2_registry(limit: int = 100):
             tags,
             projects
         FROM processed_files
-        ORDER BY processed_at DESC
+        ORDER BY COALESCE(ingested_at, processed_at) DESC
         LIMIT ?
     """, (limit,)).fetchall()
     conn.close()
@@ -506,9 +506,11 @@ async def v2_projects(request: Request, db: Session = Depends(get_db)):
         try:
             conn = sqlite3.connect(str(registry_path))
             conn.row_factory = sqlite3.Row
+            # Note: COALESCE(ingested_at, processed_at) aliased as 'processed_at' for template compatibility
+            # This represents the actual ingestion time, falling back to processing time for old entries
             rows = conn.execute(
-                "SELECT id, filename, title, mode, projects, processed_at, success, error, duration_seconds "
-                "FROM processed_files WHERE success = 1 ORDER BY processed_at DESC"
+                "SELECT id, filename, title, mode, projects, COALESCE(ingested_at, processed_at) as processed_at, success, error, duration_seconds "
+                "FROM processed_files WHERE success = 1 ORDER BY COALESCE(ingested_at, processed_at) DESC"
             ).fetchall()
             conn.close()
             
@@ -942,9 +944,10 @@ def _get_ingest_files(db: Session) -> list:
         try:
             conn = sqlite3.connect(str(registry_path))
             conn.row_factory = sqlite3.Row
+            # Select both ingested_at and processed_at for fallback logic (line 1001)
             rows = conn.execute(
-                "SELECT filename, file_hash, success, error, retry_count, processed_at, skipped, title "
-                "FROM processed_files ORDER BY processed_at DESC"
+                "SELECT filename, file_hash, success, error, retry_count, processed_at, ingested_at, skipped, title "
+                "FROM processed_files ORDER BY COALESCE(ingested_at, processed_at) DESC"
             ).fetchall()
             conn.close()
             for row in rows:
@@ -993,6 +996,7 @@ def _get_ingest_files(db: Session) -> list:
                     "size_bytes": stat.st_size,
                     "size_mb": round(stat.st_size / (1024 * 1024), 2),
                     "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "ingested_at": info.get("ingested_at") or info.get("processed_at") if info else None,
                     "status": status,
                     "error": error,
                     "title": title,
@@ -1002,8 +1006,8 @@ def _get_ingest_files(db: Session) -> list:
     except Exception as e:
         logger.error(f"Failed to list ingest files: {e}")
 
-    # Sort by modified date, newest first
-    files.sort(key=lambda f: f.get("modified_at", ""), reverse=True)
+    # Sort by ingested_at DESC (newest first), falling back to modified_at for new files
+    files.sort(key=lambda f: f.get("ingested_at") or f.get("modified_at", ""), reverse=True)
     return files
 
 
@@ -1296,12 +1300,12 @@ async def api_calendar_data(
             conn.row_factory = sqlite3.Row
             # Get daily counts for the month
             rows = conn.execute(
-                "SELECT DATE(processed_at) as day, COUNT(*) as cnt, "
+                "SELECT DATE(COALESCE(ingested_at, processed_at)) as day, COUNT(*) as cnt, "
                 "SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as ok, "
                 "SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) as fail "
                 "FROM processed_files "
-                "WHERE strftime('%Y', processed_at) = ? AND strftime('%m', processed_at) = ? "
-                "GROUP BY DATE(processed_at) ORDER BY day",
+                "WHERE strftime('%Y', COALESCE(ingested_at, processed_at)) = ? AND strftime('%m', COALESCE(ingested_at, processed_at)) = ? "
+                "GROUP BY DATE(COALESCE(ingested_at, processed_at)) ORDER BY day",
                 (str(year), f"{month:02d}")
             ).fetchall()
             for row in rows:
@@ -1311,11 +1315,11 @@ async def api_calendar_data(
 
             # Get individual notes for the month
             note_rows = conn.execute(
-                "SELECT id, filename, title, mode, processed_at, success, error, "
+                "SELECT id, filename, title, mode, COALESCE(ingested_at, processed_at) as processed_at, success, error, "
                 "duration_seconds, file_hash, has_tasks "
                 "FROM processed_files "
-                "WHERE strftime('%Y', processed_at) = ? AND strftime('%m', processed_at) = ? "
-                "ORDER BY processed_at DESC",
+                "WHERE strftime('%Y', COALESCE(ingested_at, processed_at)) = ? AND strftime('%m', COALESCE(ingested_at, processed_at)) = ? "
+                "ORDER BY COALESCE(ingested_at, processed_at) DESC",
                 (str(year), f"{month:02d}")
             ).fetchall()
             conn.close()
@@ -1422,10 +1426,10 @@ async def api_archive(
 
         offset = (page - 1) * per_page
         rows = conn.execute(
-            f"SELECT id, filename, title, mode, processed_at, success, error, "
+            f"SELECT id, filename, title, mode, COALESCE(ingested_at, processed_at) as processed_at, success, error, "
             f"duration_seconds, file_hash, retry_count, skipped, has_tasks "
             f"FROM processed_files{where_sql} "
-            f"ORDER BY processed_at DESC LIMIT ? OFFSET ?",
+            f"ORDER BY COALESCE(ingested_at, processed_at) DESC LIMIT ? OFFSET ?",
             params + [per_page, offset]
         ).fetchall()
         conn.close()

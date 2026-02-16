@@ -1,7 +1,8 @@
 # Voice-to-Notes System Documentation
 
-> Last Updated: 14 February 2026  
-> Engine Version: 2.1.0
+> Last Updated: 16 February 2026  
+> Engine Version: 2.1.0  
+> Frontend Spec: V2 (FRONTEND_SPEC_V2.md)
 
 ## Overview
 
@@ -332,6 +333,39 @@ docker compose restart watcher
 ### Manual Upload
 
 Visit `http://localhost:8000/` and use the upload form.
+
+---
+
+## Recent Updates (February 2026)
+
+### Filename Format Change (Feb 16)
+- **New default**: `YYYY_MM_DD_HH_MM_slug.md` (e.g., `2026_02_16_14_30_voice-note.md`)
+- **Previous**: `DD_MM_YY_slug.md` (e.g., `16_02_26_voice-note.md`)
+- **Rationale**: Better time granularity and chronological sorting
+- **Configuration**: Set `FILENAME_DATE_FORMAT` env var to revert if needed
+
+### Ingestion Timestamp Tracking (Feb 16)
+- **New column**: `ingested_at` in `processed_files` table
+- **Purpose**: Track actual ingestion time vs. filesystem modification time
+- **Sorting**: All views now sort by `COALESCE(ingested_at, processed_at) DESC`
+- **Backward compatible**: Falls back to `processed_at` for old entries
+- **Impact**: More predictable, deterministic file ordering
+
+### Database Schema Updates
+```sql
+-- New column for tracking ingestion time
+ALTER TABLE processed_files ADD COLUMN ingested_at TEXT;
+
+-- Used in queries as:
+SELECT * FROM processed_files 
+ORDER BY COALESCE(ingested_at, processed_at) DESC
+```
+
+### Frontend UX Improvements (In Progress)
+- **Ingest Page**: Complete redesign with dense table layout, inline project assignment
+- **Projects Page**: Compact grid view, remove mode grouping, add tile actions
+- **Visual Language**: Finder-style aesthetic, minimal whitespace, instant updates
+- **See**: `FRONTEND_SPEC_V2.md` for complete specification
 
 ---
 

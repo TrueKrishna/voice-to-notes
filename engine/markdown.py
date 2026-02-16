@@ -29,6 +29,7 @@ def get_filename_base(result: ProcessingResult, date_format: str = "DD_MM_YY") -
             - "YYYY-MM-DD": 2025-01-25
             - "MM-DD-YYYY": 01-25-2025
             - "YYMMDD": 250125
+            - "YYYY_MM_DD_HH_MM": 2025_01_25_14_30
     
     Returns:
         Tuple of (filename_base, timestamp_used)
@@ -46,6 +47,7 @@ def get_filename_base(result: ProcessingResult, date_format: str = "DD_MM_YY") -
         "YYYY-MM-DD": "%Y-%m-%d",
         "MM-DD-YYYY": "%m-%d-%Y",
         "YYMMDD": "%y%m%d",
+        "YYYY_MM_DD_HH_MM": "%Y_%m_%d_%H_%M",
     }
     strftime_fmt = format_map.get(date_format, "%d_%m_%y")
     

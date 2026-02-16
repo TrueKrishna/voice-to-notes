@@ -80,6 +80,10 @@ class ProcessingRegistry:
                 conn.execute("ALTER TABLE processed_files ADD COLUMN audio_path TEXT")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE processed_files ADD COLUMN ingested_at TEXT")
+            except sqlite3.OperationalError:
+                pass
             
             # Watcher status table - tracks what the system is doing RIGHT NOW
             conn.execute("""
@@ -176,14 +180,15 @@ class ProcessingRegistry:
         audio_path: str = "",
     ):
         """Record a successfully processed file."""
+        now = datetime.utcnow().isoformat()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO processed_files
                     (filename, file_hash, file_size, mode, title, note_path,
-                     duration_seconds, processed_at, success, error,
+                     duration_seconds, processed_at, ingested_at, success, error,
                      transcript_path, has_tasks, audio_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?)
                 """,
                 (
                     filename,
@@ -193,7 +198,8 @@ class ProcessingRegistry:
                     title,
                     note_path,
                     duration,
-                    datetime.utcnow().isoformat(),
+                    now,
+                    now,
                     transcript_path,
                     1 if has_tasks else 0,
                     audio_path,
@@ -255,15 +261,15 @@ class ProcessingRegistry:
         return {"total": total, "success": success, "failed": failed}
 
     def get_recent(self, limit: int = 20) -> list[dict]:
-        """Get recently processed files."""
+        """Get recently processed files, sorted by ingested_at DESC (newest first)."""
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
                 SELECT filename, mode, title, note_path, duration_seconds,
-                       processed_at, success, error, retry_count, skipped
+                       processed_at, ingested_at, success, error, retry_count, skipped
                 FROM processed_files
-                ORDER BY processed_at DESC
+                ORDER BY COALESCE(ingested_at, processed_at) DESC
                 LIMIT ?
                 """,
                 (limit,),
