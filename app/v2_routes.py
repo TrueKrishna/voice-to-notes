@@ -42,6 +42,10 @@ class NoteUpdate(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class NoteRename(BaseModel):
+    new_slug: str
+
+
 class TaskUpdate(BaseModel):
     completed: bool
 
@@ -1923,3 +1927,121 @@ async def api_registry_audio(note_id: int):
         media_type=mime,
         filename=row["filename"],
     )
+
+
+@router.post("/api/registry/{note_id}/rename")
+async def api_rename_note(note_id: int, rename_data: NoteRename):
+    """Rename a processed note file (slug only, timestamp locked)."""
+    import sqlite3
+    import re
+    import os
+    
+    registry_path = _get_registry_path()
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Registry not found")
+    
+    # Get the current note info
+    conn = sqlite3.connect(str(registry_path))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT note_path, success FROM processed_files WHERE id = ?", (note_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    if not row["success"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Cannot rename failed or pending notes")
+    
+    old_path_str = row["note_path"]
+    if not old_path_str:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Note path not found in registry")
+    
+    old_path = Path(old_path_str)
+    if not old_path.exists():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Note file not found on disk")
+    
+    # Sanitize the new slug
+    new_slug = rename_data.new_slug.strip()
+    # Remove invalid filesystem characters: / \ : ? * < > | and leading/trailing spaces
+    new_slug = re.sub(r'[/\\:?*<>|]', '', new_slug)
+    # Replace spaces with hyphens
+    new_slug = re.sub(r'\s+', '-', new_slug)
+    # Remove leading/trailing hyphens
+    new_slug = new_slug.strip('-')
+    # Convert to lowercase
+    new_slug = new_slug.lower()
+    
+    if not new_slug:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Invalid slug: cannot be empty after sanitization")
+    
+    # Parse the old filename to extract the timestamp prefix
+    old_filename = old_path.stem  # without .md extension
+    
+    # Expected format: YYYY_MM_DD_HH_MM_slug
+    # Find the timestamp prefix (first 16 chars: YYYY_MM_DD_HH_MM)
+    # The timestamp format is: 2026_02_16_14_30 (16 characters)
+    if len(old_filename) < 17 or old_filename[16] != '_':
+        # Try to match the pattern more flexibly
+        match = re.match(r'^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_(.+)$', old_filename)
+        if not match:
+            conn.close()
+            raise HTTPException(
+                status_code=400, 
+                detail="Filename format not recognized. Expected YYYY_MM_DD_HH_MM_slug format"
+            )
+        timestamp_prefix = match.group(1)
+    else:
+        timestamp_prefix = old_filename[:16]  # YYYY_MM_DD_HH_MM
+    
+    # Build new filename with locked timestamp prefix
+    new_filename = f"{timestamp_prefix}_{new_slug}.md"
+    new_path = old_path.parent / new_filename
+    
+    # Check for conflicts
+    if new_path.exists() and new_path != old_path:
+        conn.close()
+        raise HTTPException(
+            status_code=409, 
+            detail=f"A note with this name already exists: {new_filename}"
+        )
+    
+    # Perform the rename
+    try:
+        os.rename(old_path, new_path)
+    except Exception as e:
+        conn.close()
+        logger.error(f"Failed to rename file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}")
+    
+    # Update the registry
+    try:
+        conn.execute(
+            "UPDATE processed_files SET note_path = ? WHERE id = ?",
+            (str(new_path), note_id)
+        )
+        conn.commit()
+    except Exception as e:
+        # Try to rollback the filesystem rename
+        try:
+            os.rename(new_path, old_path)
+        except:
+            pass
+        conn.close()
+        logger.error(f"Failed to update registry: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update registry: {str(e)}")
+    
+    conn.close()
+    
+    return {
+        "success": True,
+        "old_path": str(old_path),
+        "new_path": str(new_path),
+        "new_filename": new_filename,
+        "sanitized_slug": new_slug
+    }

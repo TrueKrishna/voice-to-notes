@@ -19,13 +19,14 @@ from .titlegen import slugify
 logger = logging.getLogger(__name__)
 
 
-def get_filename_base(result: ProcessingResult, date_format: str = "DD_MM_YY") -> tuple[str, datetime]:
+def get_filename_base(result: ProcessingResult, date_format: str = "YYYY_MM_DD_HH_MM") -> tuple[str, datetime]:
     """Generate the base filename (without extension) in date_slug format.
     
     Args:
         result: ProcessingResult with title and metadata
         date_format: Format string. Supported values:
-            - "DD_MM_YY" (default): 25_01_25
+            - "YYYY_MM_DD_HH_MM" (default): 2026_02_16_14_30
+            - "DD_MM_YY": 25_01_25
             - "YYYY-MM-DD": 2025-01-25
             - "MM-DD-YYYY": 01-25-2025
             - "YYMMDD": 250125
@@ -42,12 +43,13 @@ def get_filename_base(result: ProcessingResult, date_format: str = "DD_MM_YY") -
     
     # Map format names to strftime patterns
     format_map = {
+        "YYYY_MM_DD_HH_MM": "%Y_%m_%d_%H_%M",
         "DD_MM_YY": "%d_%m_%y",
         "YYYY-MM-DD": "%Y-%m-%d",
         "MM-DD-YYYY": "%m-%d-%Y",
         "YYMMDD": "%y%m%d",
     }
-    strftime_fmt = format_map.get(date_format, "%d_%m_%y")
+    strftime_fmt = format_map.get(date_format, "%Y_%m_%d_%H_%M")
     
     filename_base = f"{ts.strftime(strftime_fmt)}_{slug}"
     
@@ -72,7 +74,7 @@ def _resolve_path_collision(path: Path) -> Path:
 # TRANSCRIPT OUTPUT (Raw verbatim transcript)
 # =============================================================================
 
-def build_transcript_note(result: ProcessingResult, engine_version: str = "2.0.0", date_format: str = "DD_MM_YY") -> str:
+def build_transcript_note(result: ProcessingResult, engine_version: str = "2.0.0", date_format: str = "YYYY_MM_DD_HH_MM") -> str:
     """Build a minimal transcript-only markdown file.
     
     Format:
@@ -118,7 +120,7 @@ def save_transcript(
     result: ProcessingResult,
     transcripts_dir: Path,
     engine_version: str = "2.0.0",
-    date_format: str = "DD_MM_YY",
+    date_format: str = "YYYY_MM_DD_HH_MM",
 ) -> Path:
     """Save the raw transcript to the Transcripts folder.
     
@@ -144,7 +146,7 @@ def build_inbox_note(
     result: ProcessingResult, 
     engine_version: str = "2.0.0",
     transcript_path: Optional[Path] = None,
-    date_format: str = "DD_MM_YY",
+    date_format: str = "YYYY_MM_DD_HH_MM",
 ) -> str:
     """Build a complete Obsidian-compatible structured note for Inbox.
 
@@ -231,7 +233,7 @@ def save_inbox_note(
     inbox_dir: Path,
     engine_version: str = "2.0.0",
     transcript_path: Optional[Path] = None,
-    date_format: str = "DD_MM_YY",
+    date_format: str = "YYYY_MM_DD_HH_MM",
 ) -> Path:
     """Save the structured note to the Inbox folder.
     
@@ -258,7 +260,7 @@ def save_dual_output(
     inbox_dir: Path,
     transcripts_dir: Path,
     engine_version: str = "2.0.0",
-    date_format: str = "DD_MM_YY",
+    date_format: str = "YYYY_MM_DD_HH_MM",
 ) -> tuple[Path, Path]:
     """Save both transcript and structured note.
     
