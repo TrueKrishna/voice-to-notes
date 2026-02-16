@@ -154,7 +154,7 @@ document.addEventListener('alpine:init', function() {
     /**
      * Note list component
      */
-    Alpine.data('noteList', function(initialNotes, initialTagFilter) {
+    Alpine.data('inboxView', function(initialNotes, initialTagFilter) {
         return {
             notes: initialNotes || [],
             selectedId: null,
@@ -162,6 +162,18 @@ document.addEventListener('alpine:init', function() {
             searchQuery: '',
             tagFilter: initialTagFilter || '',
             loading: false,
+            knownProjects: [],
+            
+            init: function() {
+                // Load known projects
+                var self = this;
+                fetch('/v2/api/projects')
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        self.knownProjects = (data.projects || []).map(function(p) { return p.name; });
+                    })
+                    .catch(function(err) { console.warn('Failed to load projects:', err); });
+            },
             
             get filteredNotes() {
                 var filtered = this.notes;
@@ -223,6 +235,104 @@ document.addEventListener('alpine:init', function() {
                     .then(function(data) { self.notes = data; })
                     .catch(function(err) { console.error('Failed to load notes:', err); })
                     .finally(function() { self.loading = false; });
+            },
+            
+            // Inspector Actions
+            openAudio: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note && note.audio_url) {
+                    window.open(note.audio_url, '_blank');
+                }
+            },
+            
+            openNote: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note) {
+                    window.location.href = note.link || ('/v2/note/' + note.id);
+                }
+            },
+            
+            copyTranscript: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note && note.transcript) {
+                    navigator.clipboard.writeText(note.transcript);
+                    this.toast('Transcript copied to clipboard');
+                }
+            },
+            
+            downloadTranscript: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note && note.source === 'registry') {
+                    window.open('/v2/api/registry/' + note.id + '/download/transcript', '_blank');
+                }
+            },
+            
+            copyBreakdown: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note && note.content) {
+                    navigator.clipboard.writeText(note.content);
+                    this.toast('Breakdown copied to clipboard');
+                }
+            },
+            
+            downloadBreakdown: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (note && note.source === 'registry') {
+                    window.open('/v2/api/registry/' + note.id + '/download/note', '_blank');
+                }
+            },
+            
+            // Project assignment
+            assignProject: function(projectName) {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (!note || note.source !== 'registry') return;
+                
+                var self = this;
+                var projects = projectName ? [projectName] : [];
+                
+                // Optimistic update
+                note.projects = projects;
+                
+                fetch('/v2/api/registry/' + note.id + '/projects', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ projects: projects })
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    self.toast('Project updated');
+                })
+                .catch(function(err) {
+                    self.toast('Failed to update project');
+                    console.error(err);
+                });
+            },
+            
+            createAndAssignProject: function() {
+                var note = this.filteredNotes.find(function(n) { return n.id === this.selectedId; }.bind(this));
+                if (!note || note.source !== 'registry') return;
+                
+                var projectName = (note.newProject || '').trim();
+                if (!projectName) return;
+                
+                var self = this;
+                
+                // Add to known projects
+                if (!this.knownProjects.includes(projectName)) {
+                    this.knownProjects.push(projectName);
+                }
+                
+                // Assign the project
+                this.assignProject(projectName);
+                
+                // Clear input
+                note.newProject = '';
+            },
+            
+            toast: function(msg) {
+                // Simple toast notification
+                console.log('Toast:', msg);
+                // TODO: Implement proper toast UI
             },
             
             // Format helpers for templates

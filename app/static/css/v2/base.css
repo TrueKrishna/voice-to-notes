@@ -1892,3 +1892,90 @@ tr:hover .row-actions {
 .md-content th { background: var(--bg-tertiary); font-weight: 600; color: var(--text-primary); }
 .md-content a { color: var(--accent); text-decoration: none; }
 .md-content a:hover { text-decoration: underline; }
+
+/* ==========================================================================
+   INBOX PAGE - Two-Pane Layout & Inspector
+   ========================================================================== */
+/* Icon buttons for Inspector action bar */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--bg-overlay);
+  border-color: var(--accent);
+}
+
+.btn-icon:disabled {
+  cursor: not-allowed;
+}
+
+/* Content switcher (Summary vs Transcript) */
+.content-switcher-btn {
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.content-switcher-btn:hover {
+  color: var(--text-secondary);
+}
+
+.content-switcher-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* List item selected state with accent border */
+.list-item.selected {
+  position: relative;
+}
+
+.list-item.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: var(--space-2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown-item {
+  padding: var(--space-2);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.dropdown-item:hover {
+  background: var(--bg-elevated);
+}
