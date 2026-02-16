@@ -59,7 +59,8 @@ if [ ! -f .env ]; then
     # Update DATA_DIR in .env if custom path was chosen
     if [ "$DATA_DIR" != "$HOME/voice-notes-data" ]; then
         if grep -q "^# DATA_DIR=" .env; then
-            sed -i.bak "s|^# DATA_DIR=.*|DATA_DIR=$DATA_DIR|" .env && rm .env.bak
+            # Use portable sed approach with temporary file
+            sed "s|^# DATA_DIR=.*|DATA_DIR=$DATA_DIR|" .env > .env.tmp && mv .env.tmp .env
         else
             echo "DATA_DIR=$DATA_DIR" >> .env
         fi
