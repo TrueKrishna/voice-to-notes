@@ -101,7 +101,7 @@ cleanup_backups() {
     local count=$(ls -1 "$BACKUP_DIR"/$pattern 2>/dev/null | wc -l)
     if [ "$count" -gt 5 ]; then
         local to_delete=$((count - 5))
-        ls -1t "$BACKUP_DIR"/$pattern | tail -n "$to_delete" | while read file; do
+        (cd "$BACKUP_DIR" && ls -1t $pattern) | tail -n "$to_delete" | while read file; do
             rm -f "$BACKUP_DIR/$file"
             echo -e "${BLUE}  Deleted: $file${NC}"
         done
