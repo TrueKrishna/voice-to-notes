@@ -35,6 +35,7 @@ def process_audio(
     mode: str = "personal_note",
     config: Optional[EngineConfig] = None,
     extract_tasks: bool = True,
+    on_step: Optional[callable] = None,
 ) -> ProcessingResult:
     """Process an audio file through the complete pipeline.
 
@@ -52,6 +53,7 @@ def process_audio(
               One of: personal_note, idea, meeting, reflection, task_dump
         config: Engine configuration. If None, loads from environment.
         extract_tasks: Whether to run task extraction (default: True).
+        on_step: Optional callback(step_num, step_name) for progress updates.
 
     Returns:
         ProcessingResult with all outputs, metadata, and saved note paths.
@@ -62,6 +64,13 @@ def process_audio(
     file_path = Path(file_path)
     config = config or load_config()
     proc_mode = ProcessingMode(mode)
+    
+    def _report_step(num: int, name: str):
+        if on_step:
+            try:
+                on_step(num, name)
+            except Exception:
+                pass
 
     result = ProcessingResult(
         source_file=file_path.name,
@@ -76,6 +85,7 @@ def process_audio(
         logger.info(f"{'=' * 60}")
 
         # ── Step 1: Audio metadata ──────────────────────────────────
+        _report_step(1, "Extracting metadata")
         logger.info("Step 1/6 — Extracting audio metadata")
         result.metadata = get_audio_metadata(file_path)
         if result.metadata.duration:
@@ -88,6 +98,7 @@ def process_audio(
             logger.info(f"  Recorded: {result.metadata.recorded_at}")
 
         # ── Step 2: Compress ────────────────────────────────────────
+        _report_step(2, "Compressing audio")
         logger.info("Step 2/6 — Compressing audio (FFmpeg → Opus)")
         if check_ffmpeg():
             compressed_path, orig_mb, comp_mb = compress_audio(
@@ -104,16 +115,27 @@ def process_audio(
             audio_for_ai = file_path
 
         # ── Step 3: Transcribe ──────────────────────────────────────
-        logger.info("Step 3/6 — Transcribing with Gemini AI")
-        client = GeminiClient(config.gemini_api_keys, config.gemini_model)
         transcription_prompt = get_transcription_prompt()
-        result.transcript = client.transcribe(audio_for_ai, transcription_prompt)
+        gemini_client = GeminiClient(config.gemini_api_keys, config.gemini_model)
+
+        if config.transcription_engine in ("whisper-1", "gpt-4o-transcribe"):
+            _report_step(3, f"Transcribing (OpenAI {config.transcription_engine})")
+            logger.info(f"Step 3/6 — Transcribing with OpenAI ({config.transcription_engine})")
+            from .whisper import OpenAITranscriber
+            transcriber = OpenAITranscriber(config.openai_api_key, config.transcription_engine)
+            result.transcript = transcriber.transcribe(audio_for_ai, transcription_prompt)
+        else:
+            _report_step(3, "Transcribing (Gemini)")
+            logger.info("Step 3/6 — Transcribing with Gemini AI")
+            result.transcript = gemini_client.transcribe(audio_for_ai, transcription_prompt)
+
         logger.info(f"  Transcript length: {len(result.transcript)} chars")
 
         # ── Step 4: Structure ───────────────────────────────────────
+        _report_step(4, "Generating structure")
         logger.info("Step 4/6 — Generating structured breakdown")
         structuring_prompt = get_structuring_prompt(proc_mode)
-        structured_output = client.structure(result.transcript, structuring_prompt)
+        structured_output = gemini_client.structure(result.transcript, structuring_prompt)
 
         # Parse title from AI output
         title, content = parse_title_and_content(structured_output)
@@ -123,13 +145,14 @@ def process_audio(
 
         # ── Step 5: Extract Tasks ───────────────────────────────────
         if extract_tasks:
+            _report_step(5, "Extracting tasks")
             logger.info("Step 5/6 — Extracting tasks")
             try:
                 from .tasks import extract_tasks_from_content
                 result.tasks = extract_tasks_from_content(
                     result.structured_content, 
                     result.transcript,
-                    client
+                    gemini_client
                 )
                 result.has_tasks = len(result.tasks) > 0
                 logger.info(f"  Tasks found: {len(result.tasks)}")
@@ -138,11 +161,13 @@ def process_audio(
                 result.tasks = []
                 result.has_tasks = False
         else:
+            _report_step(5, "Skipping tasks")
             logger.info("Step 5/6 — Skipping task extraction")
             result.tasks = []
             result.has_tasks = False
 
         # ── Step 6: Save dual output to Obsidian ────────────────────
+        _report_step(6, "Saving outputs")
         logger.info("Step 6/6 — Saving to Obsidian vault (dual output)")
         
         transcript_path, inbox_path = save_dual_output(
@@ -150,11 +175,31 @@ def process_audio(
             inbox_dir=config.inbox_dir,
             transcripts_dir=config.transcripts_dir,
             engine_version=config.engine_version,
+            date_format=config.filename_date_format,
         )
         
         result.transcript_path = transcript_path
         result.inbox_path = inbox_path
         result.note_path = inbox_path  # Legacy compatibility
+
+        # ── Save compressed audio to vault Audio folder ─────────────
+        audio_stored_path = None
+        if result.compressed_path and result.compressed_path.exists():
+            try:
+                audio_dest_dir = config.audio_dir
+                audio_dest_dir.mkdir(parents=True, exist_ok=True)
+                audio_filename = result.compressed_path.name
+                # Use the same stem as the inbox note for consistency
+                if result.inbox_path:
+                    audio_filename = result.inbox_path.stem + result.compressed_path.suffix
+                audio_dest = audio_dest_dir / audio_filename
+                import shutil
+                shutil.copy2(str(result.compressed_path), str(audio_dest))
+                audio_stored_path = audio_dest
+                result.audio_path = audio_dest
+                logger.info(f"  Audio saved: {audio_dest}")
+            except Exception as e:
+                logger.warning(f"  Failed to save audio: {e}")
 
         # Cleanup compressed temp file
         if result.compressed_path and result.compressed_path != file_path:

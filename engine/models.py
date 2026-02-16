@@ -73,6 +73,7 @@ class ProcessingResult:
     transcript_path: Optional[Path] = None  # Raw transcript file
     inbox_path: Optional[Path] = None       # Structured note in Inbox
     note_path: Optional[Path] = None        # Legacy: same as inbox_path
+    audio_path: Optional[Path] = None       # Stored compressed audio
     status: NoteStatus = NoteStatus.INBOX
 
     # Timing

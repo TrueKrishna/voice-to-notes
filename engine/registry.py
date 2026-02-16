@@ -76,6 +76,10 @@ class ProcessingRegistry:
                 conn.execute("ALTER TABLE processed_files ADD COLUMN has_tasks INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE processed_files ADD COLUMN audio_path TEXT")
+            except sqlite3.OperationalError:
+                pass
             
             # Watcher status table - tracks what the system is doing RIGHT NOW
             conn.execute("""
@@ -169,6 +173,7 @@ class ProcessingRegistry:
         duration: Optional[float] = None,
         transcript_path: str = "",
         has_tasks: bool = False,
+        audio_path: str = "",
     ):
         """Record a successfully processed file."""
         with self._connect() as conn:
@@ -177,8 +182,8 @@ class ProcessingRegistry:
                 INSERT OR REPLACE INTO processed_files
                     (filename, file_hash, file_size, mode, title, note_path,
                      duration_seconds, processed_at, success, error,
-                     transcript_path, has_tasks)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)
+                     transcript_path, has_tasks, audio_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?)
                 """,
                 (
                     filename,
@@ -191,6 +196,7 @@ class ProcessingRegistry:
                     datetime.utcnow().isoformat(),
                     transcript_path,
                     1 if has_tasks else 0,
+                    audio_path,
                 ),
             )
         logger.info(f"Registry: recorded success for {filename}")

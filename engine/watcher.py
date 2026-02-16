@@ -229,7 +229,15 @@ class FolderWatcher:
         shutil.copy2(str(source_path), str(dest))
 
         try:
-            result = process_audio(dest, mode=mode.value, config=self.config)
+            # Progress callback to update watcher status
+            def on_step(step_num: int, step_name: str):
+                self.registry.update_watcher_status(
+                    "processing",
+                    current_file=source_path.name,
+                    current_step=f"Step {step_num}/6 — {step_name}",
+                )
+            
+            result = process_audio(dest, mode=mode.value, config=self.config, on_step=on_step)
 
             # Record success in registry
             self.registry.record_success(
@@ -242,6 +250,7 @@ class FolderWatcher:
                 transcript_path=str(result.transcript_path) if result.transcript_path else "",
                 duration=result.metadata.duration,
                 has_tasks=result.has_tasks,
+                audio_path=str(result.audio_path) if result.audio_path else "",
             )
 
             # Append extracted tasks to daily task file

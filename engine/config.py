@@ -20,7 +20,7 @@ try:
     from shared.api_keys import DEFAULT_MODEL, AVAILABLE_MODELS, get_model_config
 except ImportError:
     # Fallback if shared module not available
-    DEFAULT_MODEL = "gemini-2.0-flash"
+    DEFAULT_MODEL = "gemini-3-flash-preview"
     AVAILABLE_MODELS = []
     get_model_config = None
 
@@ -46,6 +46,7 @@ class EngineConfig:
     daily_subdir: str = "Daily"           # Daily summaries
     weekly_subdir: str = "Weekly"         # Weekly rollups
     projects_subdir: str = "Projects"     # Tag-routed copies
+    audio_subdir: str = "Audio"           # Stored compressed audio files
     
     # Processing directories
     processing_temp_dir: Path = field(default_factory=lambda: Path("./data/engine/processing"))
@@ -57,6 +58,10 @@ class EngineConfig:
     default_mode: str = "personal_note"
     gemini_model: str = DEFAULT_MODEL  # Use shared default
 
+    # Transcription engine: "gemini", "whisper-1", or "gpt-4o-transcribe"
+    transcription_engine: str = "gemini"
+    openai_api_key: str = ""
+
     # Watcher settings
     stability_seconds: int = 10
     scan_interval_seconds: int = 5
@@ -66,6 +71,10 @@ class EngineConfig:
     supported_formats: frozenset = frozenset(
         {".mp3", ".m4a", ".wav", ".ogg", ".flac", ".webm", ".aac", ".opus", ".3gp"}
     )
+    
+    # Filename format settings
+    # Supported: "DD_MM_YY", "YYYY-MM-DD", "MM-DD-YYYY", "YYMMDD"
+    filename_date_format: str = "DD_MM_YY"
 
     @property
     def notes_output_dir(self) -> Path:
@@ -102,6 +111,11 @@ class EngineConfig:
         """Full path to Projects folder (tag-routed copies)."""
         return self.notes_output_dir / self.projects_subdir
 
+    @property
+    def audio_dir(self) -> Path:
+        """Full path to Audio folder (stored compressed audio)."""
+        return self.notes_output_dir / self.audio_subdir
+
     def ensure_directories(self):
         """Create all required directories if they don't exist."""
         for d in [
@@ -114,6 +128,7 @@ class EngineConfig:
             self.daily_dir,
             self.weekly_dir,
             self.projects_dir,
+            self.audio_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
         self.registry_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,9 +139,15 @@ class EngineConfig:
             logger.warning(
                 f"Audio input directory does not exist yet: {self.audio_input_dir}"
             )
+        # Gemini keys are always needed (for structuring, even if transcription uses OpenAI)
         if not self.gemini_api_keys:
             logger.error("No Gemini API keys configured")
             raise ValueError("At least one Gemini API key is required")
+        # Validate OpenAI config when using OpenAI transcription
+        if self.transcription_engine in ("whisper-1", "gpt-4o-transcribe"):
+            if not self.openai_api_key:
+                logger.error("OpenAI API key required when using OpenAI transcription engine")
+                raise ValueError("OPENAI_API_KEY is required for OpenAI transcription")
 
 
 def load_config(env_file: str = ".env") -> EngineConfig:
@@ -178,6 +199,8 @@ def load_config(env_file: str = ".env") -> EngineConfig:
         engine_version=os.environ.get("ENGINE_VERSION", "2.0.0"),
         default_mode=os.environ.get("PROCESSING_MODE", "personal_note"),
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20"),
+        transcription_engine=os.environ.get("TRANSCRIPTION_ENGINE", "gemini"),
+        openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
         stability_seconds=int(os.environ.get("STABILITY_SECONDS", "10")),
         scan_interval_seconds=int(os.environ.get("SCAN_INTERVAL", "5")),
         audio_bitrate=os.environ.get("AUDIO_BITRATE", "48k"),
@@ -201,6 +224,9 @@ _SETTINGS_MAP = {
     "stability_seconds":    ("STABILITY_SECONDS",      int),
     "scan_interval_seconds":("SCAN_INTERVAL",          int),
     "audio_bitrate":        ("AUDIO_BITRATE",          str),
+    "transcription_engine": ("TRANSCRIPTION_ENGINE",   str),
+    "openai_api_key":       ("OPENAI_API_KEY",         str),
+    "filename_date_format": ("FILENAME_DATE_FORMAT",   str),
 }
 
 
@@ -307,6 +333,8 @@ def load_config_from_db(db_path: str | None = None) -> EngineConfig:
         engine_version=os.environ.get("ENGINE_VERSION", "2.0.0"),
         default_mode=_get("PROCESSING_MODE", default="personal_note"),
         gemini_model=_get("GEMINI_MODEL", default=DEFAULT_MODEL),
+        transcription_engine=_get("TRANSCRIPTION_ENGINE", default="gemini"),
+        openai_api_key=_get("OPENAI_API_KEY", default=""),
         stability_seconds=int(_get("STABILITY_SECONDS", default="10")),
         scan_interval_seconds=int(_get("SCAN_INTERVAL", default="5")),
         audio_bitrate=_get("AUDIO_BITRATE", default="48k"),

@@ -19,8 +19,16 @@ from .titlegen import slugify
 logger = logging.getLogger(__name__)
 
 
-def get_filename_base(result: ProcessingResult) -> tuple[str, datetime]:
-    """Generate the base filename (without extension) in DD_MM_YY_slug format.
+def get_filename_base(result: ProcessingResult, date_format: str = "DD_MM_YY") -> tuple[str, datetime]:
+    """Generate the base filename (without extension) in date_slug format.
+    
+    Args:
+        result: ProcessingResult with title and metadata
+        date_format: Format string. Supported values:
+            - "DD_MM_YY" (default): 25_01_25
+            - "YYYY-MM-DD": 2025-01-25
+            - "MM-DD-YYYY": 01-25-2025
+            - "YYMMDD": 250125
     
     Returns:
         Tuple of (filename_base, timestamp_used)
@@ -31,8 +39,17 @@ def get_filename_base(result: ProcessingResult) -> tuple[str, datetime]:
         ts = datetime.utcnow()
     
     slug = slugify(result.title)
-    # DD_MM_YY format
-    filename_base = f"{ts.strftime('%d_%m_%y')}_{slug}"
+    
+    # Map format names to strftime patterns
+    format_map = {
+        "DD_MM_YY": "%d_%m_%y",
+        "YYYY-MM-DD": "%Y-%m-%d",
+        "MM-DD-YYYY": "%m-%d-%Y",
+        "YYMMDD": "%y%m%d",
+    }
+    strftime_fmt = format_map.get(date_format, "%d_%m_%y")
+    
+    filename_base = f"{ts.strftime(strftime_fmt)}_{slug}"
     
     return filename_base, ts
 
@@ -55,7 +72,7 @@ def _resolve_path_collision(path: Path) -> Path:
 # TRANSCRIPT OUTPUT (Raw verbatim transcript)
 # =============================================================================
 
-def build_transcript_note(result: ProcessingResult, engine_version: str = "2.0.0") -> str:
+def build_transcript_note(result: ProcessingResult, engine_version: str = "2.0.0", date_format: str = "DD_MM_YY") -> str:
     """Build a minimal transcript-only markdown file.
     
     Format:
@@ -73,7 +90,7 @@ def build_transcript_note(result: ProcessingResult, engine_version: str = "2.0.0
         
         <full verbatim transcript>
     """
-    filename_base, _ = get_filename_base(result)
+    filename_base, _ = get_filename_base(result, date_format)
     
     lines = ["---"]
     lines.append(f"id: {result.id}")
@@ -101,17 +118,18 @@ def save_transcript(
     result: ProcessingResult,
     transcripts_dir: Path,
     engine_version: str = "2.0.0",
+    date_format: str = "DD_MM_YY",
 ) -> Path:
     """Save the raw transcript to the Transcripts folder.
     
     Returns the path where the transcript was saved.
     """
-    filename_base, _ = get_filename_base(result)
+    filename_base, _ = get_filename_base(result, date_format)
     transcript_path = transcripts_dir / f"{filename_base}.md"
     transcript_path = _resolve_path_collision(transcript_path)
     
     transcripts_dir.mkdir(parents=True, exist_ok=True)
-    content = build_transcript_note(result, engine_version)
+    content = build_transcript_note(result, engine_version, date_format)
     transcript_path.write_text(content, encoding="utf-8")
     
     logger.info(f"Transcript saved: {transcript_path}")
@@ -126,6 +144,7 @@ def build_inbox_note(
     result: ProcessingResult, 
     engine_version: str = "2.0.0",
     transcript_path: Optional[Path] = None,
+    date_format: str = "DD_MM_YY",
 ) -> str:
     """Build a complete Obsidian-compatible structured note for Inbox.
 
@@ -156,7 +175,7 @@ def build_inbox_note(
         
         > **Source**: [[Transcripts/DD_MM_YY_slug|View full transcript]]
     """
-    filename_base, ts = get_filename_base(result)
+    filename_base, ts = get_filename_base(result, date_format)
     
     # Build frontmatter
     lines = ["---"]
@@ -212,17 +231,18 @@ def save_inbox_note(
     inbox_dir: Path,
     engine_version: str = "2.0.0",
     transcript_path: Optional[Path] = None,
+    date_format: str = "DD_MM_YY",
 ) -> Path:
     """Save the structured note to the Inbox folder.
     
     Returns the path where the note was saved.
     """
-    filename_base, _ = get_filename_base(result)
+    filename_base, _ = get_filename_base(result, date_format)
     inbox_path = inbox_dir / f"{filename_base}.md"
     inbox_path = _resolve_path_collision(inbox_path)
     
     inbox_dir.mkdir(parents=True, exist_ok=True)
-    content = build_inbox_note(result, engine_version, transcript_path)
+    content = build_inbox_note(result, engine_version, transcript_path, date_format)
     inbox_path.write_text(content, encoding="utf-8")
     
     logger.info(f"Note saved: {inbox_path}")
@@ -238,18 +258,26 @@ def save_dual_output(
     inbox_dir: Path,
     transcripts_dir: Path,
     engine_version: str = "2.0.0",
+    date_format: str = "DD_MM_YY",
 ) -> tuple[Path, Path]:
     """Save both transcript and structured note.
+    
+    Args:
+        result: ProcessingResult with all extracted data
+        inbox_dir: Path to save the structured note
+        transcripts_dir: Path to save the raw transcript
+        engine_version: Semver string for metadata
+        date_format: Filename date format (DD_MM_YY, YYYY-MM-DD, etc.)
     
     Returns:
         Tuple of (transcript_path, inbox_path)
     """
     # Save transcript first
-    transcript_path = save_transcript(result, transcripts_dir, engine_version)
+    transcript_path = save_transcript(result, transcripts_dir, engine_version, date_format)
     result.transcript_path = transcript_path
     
     # Save inbox note with cross-link
-    inbox_path = save_inbox_note(result, inbox_dir, engine_version, transcript_path)
+    inbox_path = save_inbox_note(result, inbox_dir, engine_version, transcript_path, date_format)
     result.inbox_path = inbox_path
     result.note_path = inbox_path  # For legacy compatibility
     
