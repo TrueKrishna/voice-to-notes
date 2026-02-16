@@ -943,8 +943,8 @@ def _get_ingest_files(db: Session) -> list:
             conn = sqlite3.connect(str(registry_path))
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT filename, file_hash, success, error, retry_count, processed_at, skipped, title "
-                "FROM processed_files ORDER BY processed_at DESC"
+                "SELECT filename, file_hash, success, error, retry_count, processed_at, ingested_at, skipped, title "
+                "FROM processed_files ORDER BY COALESCE(ingested_at, processed_at) DESC"
             ).fetchall()
             conn.close()
             for row in rows:
@@ -993,6 +993,7 @@ def _get_ingest_files(db: Session) -> list:
                     "size_bytes": stat.st_size,
                     "size_mb": round(stat.st_size / (1024 * 1024), 2),
                     "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "ingested_at": info.get("ingested_at") or info.get("processed_at") if info else None,
                     "status": status,
                     "error": error,
                     "title": title,
@@ -1002,8 +1003,8 @@ def _get_ingest_files(db: Session) -> list:
     except Exception as e:
         logger.error(f"Failed to list ingest files: {e}")
 
-    # Sort by modified date, newest first
-    files.sort(key=lambda f: f.get("modified_at", ""), reverse=True)
+    # Sort by ingested_at DESC (newest first), falling back to modified_at for new files
+    files.sort(key=lambda f: f.get("ingested_at") or f.get("modified_at", ""), reverse=True)
     return files
 
 
