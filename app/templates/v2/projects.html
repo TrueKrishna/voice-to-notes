@@ -7,7 +7,54 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="projectView(window.__projectsData)">
+<div x-data="projectView(window.__projectsData)" 
+     @open-rename.window="renameNote = $event.detail; showRenameModal = true"
+     x-init="renameNote = null; showRenameModal = false;">
+
+    <!-- Rename Modal -->
+    <template x-if="showRenameModal && renameNote">
+        <div class="modal-backdrop" @click.self="showRenameModal = false">
+            <div class="modal-content" 
+                 @click.stop
+                 x-data="window.initRename(renameNote.id, renameNote.filename, function(data) { 
+                     renameNote.filename = data.new_filename; 
+                     showRenameModal = false;
+                     location.reload();
+                 })">
+                <h3 class="text-lg font-semibold" style="margin-bottom: var(--space-4);">Rename Note</h3>
+                
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="text-sm text-secondary" style="display: block; margin-bottom: var(--space-2);">Filename</label>
+                    <div style="display: flex; align-items: center; gap: 4px; font-family: monospace; font-size: 0.875rem;">
+                        <span style="color: var(--text-muted); white-space: nowrap;" x-text="timestampPrefix + '_'"></span>
+                        <input 
+                            type="text" 
+                            class="input rename-input" 
+                            style="flex: 1; font-family: monospace;"
+                            x-model="editingSlug"
+                            @keydown="handleKeydown($event)"
+                            placeholder="slug"
+                            :disabled="saving">
+                        <span style="color: var(--text-muted);">.md</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin-top: var(--space-2);">
+                        Timestamp is locked. Only the slug portion can be edited.
+                    </p>
+                    <template x-if="error">
+                        <p class="text-sm" style="color: var(--error); margin-top: var(--space-2);" x-text="error"></p>
+                    </template>
+                </div>
+                
+                <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+                    <button class="btn btn-ghost" @click="showRenameModal = false" :disabled="saving">Cancel</button>
+                    <button class="btn btn-primary" @click="confirmEdit()" :disabled="saving">
+                        <template x-if="saving"><span>Renaming...</span></template>
+                        <template x-if="!saving">Rename</template>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <div class="page-header">
         <div>
@@ -91,7 +138,7 @@
                         <template x-if="isExpanded(proj)">
                             <div class="project-notes" @click.stop>
                                 <template x-for="note in expandedNotes" :key="note.id">
-                                    <div class="project-note-row">
+                                    <div class="project-note-row" style="display: flex; align-items: center; justify-content: space-between;">
                                         <a :href="'/v2/registry-note/' + note.id" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); flex:1; min-width:0;">
                                             <span class="log-icon">
                                                 <template x-if="note.success"><span style="color:var(--success);">&#10003;</span></template>
@@ -102,6 +149,15 @@
                                                 <span class="text-xs text-muted" x-text="note.processed_at"></span>
                                             </div>
                                         </a>
+                                        <template x-if="note.success && note.filename">
+                                            <button 
+                                                class="btn btn-ghost btn-sm" 
+                                                title="Rename note" 
+                                                @click.stop="$dispatch('open-rename', note)"
+                                                style="padding: 4px 8px; font-size: 0.75rem; margin-right: var(--space-2);">
+                                                ✏️
+                                            </button>
+                                        </template>
                                     </div>
                                 </template>
                                 <template x-if="expandedNotes.length === 0">
