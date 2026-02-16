@@ -11,6 +11,7 @@ sqlalchemy>=2.0.25
 
 # AI
 google-genai>=1.0.0
+openai>=1.0.0
 
 # Utils
 python-dotenv>=1.0.0

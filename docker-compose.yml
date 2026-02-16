@@ -37,6 +37,9 @@ services:
       # Fallback paths if DB settings not yet configured
       - LOCAL_SYNC_AUDIO_DIR=/data/gdrive
       - OBSIDIAN_VAULT_DIR=/data/gdrive
+      # Transcription engine: gemini (default), whisper-1, or gpt-4o-transcribe
+      # Set OPENAI_API_KEY in .env when using OpenAI engines
+      - TRANSCRIPTION_ENGINE=${TRANSCRIPTION_ENGINE:-gemini}
     env_file:
       - .env
     restart: unless-stopped
