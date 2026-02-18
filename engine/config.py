@@ -135,6 +135,20 @@ class EngineConfig:
 
     def validate(self):
         """Validate the configuration at startup."""
+        # --- CRITICAL: refuse to run with unconfigured directories ---
+        _DANGEROUS_PATHS = {"/", "/data", "/data/gdrive", str(Path.home())}
+        audio_str = str(self.audio_input_dir.resolve())
+        if audio_str in _DANGEROUS_PATHS or "NOT_CONFIGURED" in audio_str:
+            raise ValueError(
+                f"Audio input directory is not safely configured: {self.audio_input_dir}. "
+                "Set LOCAL_SYNC_AUDIO_DIR to the specific audio subfolder."
+            )
+        obsidian_str = str(self.obsidian_vault_dir.resolve())
+        if obsidian_str in _DANGEROUS_PATHS or "NOT_CONFIGURED" in obsidian_str:
+            raise ValueError(
+                f"Obsidian vault directory is not safely configured: {self.obsidian_vault_dir}. "
+                "Set OBSIDIAN_VAULT_DIR to the specific vault folder."
+            )
         if not self.audio_input_dir.exists():
             logger.warning(
                 f"Audio input directory does not exist yet: {self.audio_input_dir}"
@@ -291,19 +305,33 @@ def load_config_from_db(db_path: str | None = None) -> EngineConfig:
         return os.environ.get(env_key, default)
 
     # --- Required: audio input directory ---
-    # IMPORTANT: We do NOT fall back to /data/gdrive - that would scan ALL of Google Drive!
-    # User MUST configure this explicitly via Settings UI.
+    # CRITICAL: We MUST NOT fall back to a broad directory like /data/gdrive.
+    # That would recursively ingest ALL of Google Drive.
+    # User MUST configure this explicitly via Settings UI or env var.
     audio_input = _get("LOCAL_SYNC_AUDIO_DIR")
     if not audio_input:
-        logger.warning("⚠️  LOCAL_SYNC_AUDIO_DIR not set! Configure via Settings page at http://localhost:9123/settings")
-        # Use a non-existent placeholder - watcher will skip scanning gracefully
-        audio_input = "/NOT_CONFIGURED/audio-input"
+        logger.error(
+            "❌ FATAL: LOCAL_SYNC_AUDIO_DIR is not configured! "
+            "The watcher REFUSES to start without an explicit audio input directory. "
+            "Set it via Settings page at http://localhost:9123/settings or via env var."
+        )
+        raise ValueError(
+            "LOCAL_SYNC_AUDIO_DIR is required. Configure it in Settings or .env. "
+            "Refusing to start to prevent accidental recursive ingestion."
+        )
 
     # --- Required: Obsidian vault directory ---
     obsidian_vault = _get("OBSIDIAN_VAULT_DIR")
     if not obsidian_vault:
-        logger.warning("⚠️  OBSIDIAN_VAULT_DIR not set! Configure via Settings page at http://localhost:9123/settings")
-        obsidian_vault = "/NOT_CONFIGURED/obsidian-vault"
+        logger.error(
+            "❌ FATAL: OBSIDIAN_VAULT_DIR is not configured! "
+            "The watcher REFUSES to start without an explicit Obsidian vault directory. "
+            "Set it via Settings page at http://localhost:9123/settings or via env var."
+        )
+        raise ValueError(
+            "OBSIDIAN_VAULT_DIR is required. Configure it in Settings or .env. "
+            "Refusing to start to prevent writing notes to wrong location."
+        )
 
     # --- API keys: from V1 database (api_keys table) first, then env vars ---
     keys = _read_api_keys_from_db(db_path)

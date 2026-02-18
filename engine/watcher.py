@@ -101,7 +101,24 @@ class FolderWatcher:
         self._reload_config()
         self.registry.update_watcher_status("scanning")
 
-        if not self.config.audio_input_dir.exists():
+        # --- CRITICAL SAFETY CHECK ---
+        # Refuse to scan if audio_input_dir is not properly configured.
+        # This prevents catastrophic recursive ingestion of entire drives.
+        audio_path = self.config.audio_input_dir
+        audio_resolved = str(audio_path.resolve())
+        _DANGEROUS = {"/", "/data", "/data/gdrive", str(Path.home())}
+        if audio_resolved in _DANGEROUS or "NOT_CONFIGURED" in str(audio_path):
+            self.registry.update_watcher_status(
+                "error",
+                current_step="FATAL: audio_input_dir not configured — refusing to scan",
+            )
+            logger.error(
+                f"❌ REFUSING TO SCAN: audio_input_dir={audio_path} is too broad or not configured. "
+                "Set LOCAL_SYNC_AUDIO_DIR to the specific audio subfolder via Settings."
+            )
+            return
+
+        if not audio_path.exists():
             self.registry.update_watcher_status("idle", current_step="Input dir not found")
             return
 
