@@ -84,6 +84,14 @@ class ProcessingRegistry:
                 conn.execute("ALTER TABLE processed_files ADD COLUMN ingested_at TEXT")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE processed_files ADD COLUMN tags TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE processed_files ADD COLUMN projects TEXT")
+            except sqlite3.OperationalError:
+                pass
             
             # Watcher status table - tracks what the system is doing RIGHT NOW
             conn.execute("""
@@ -128,6 +136,37 @@ class ProcessingRegistry:
                 (file_hash,),
             ).fetchone()
             return row is not None
+
+    # Errors that are caused by missing configuration, not transient failures.
+    # These should be retried immediately once the config is fixed.
+    CONFIG_ERROR_PATTERNS = [
+        "API key is required",
+        "API key required",
+        "not set",
+        "NOT_CONFIGURED",
+    ]
+
+    def reset_config_failures(self):
+        """Reset retry state for files that failed due to config errors.
+        
+        Called after config reload — if config issues are now resolved,
+        these files should be retried immediately instead of waiting
+        for exponential backoff.
+        """
+        patterns = self.CONFIG_ERROR_PATTERNS
+        with self._connect() as conn:
+            # Build WHERE clause to match any config error pattern
+            conditions = " OR ".join(["error LIKE ?" for _ in patterns])
+            params = [f"%{p}%" for p in patterns]
+            
+            result = conn.execute(
+                f"""UPDATE processed_files 
+                    SET retry_count = 0, last_retry_at = NULL
+                    WHERE success = 0 AND skipped = 0 AND ({conditions})""",
+                params,
+            )
+            if result.rowcount > 0:
+                logger.info(f"Reset {result.rowcount} config-related failures for immediate retry")
 
     def should_skip(self, file_hash: str) -> tuple[bool, str]:
         """Check if a file should be skipped (already processed, skipped, or in backoff).

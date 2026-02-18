@@ -195,11 +195,15 @@
                 document.addEventListener('system-status', function() {
                     lucide.createIcons();
                 });
-                // Also re-create after Alpine init
-                var iconTimer = setInterval(function() {
-                    lucide.createIcons();
-                }, 1000);
-                setTimeout(function() { clearInterval(iconTimer); }, 5000);
+                // Watch for DOM changes (Alpine template swaps) and re-init icons
+                var iconDebounce = null;
+                var observer = new MutationObserver(function() {
+                    clearTimeout(iconDebounce);
+                    iconDebounce = setTimeout(function() {
+                        lucide.createIcons();
+                    }, 50);
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
             }
         });
     </script>

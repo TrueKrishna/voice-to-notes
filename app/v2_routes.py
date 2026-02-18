@@ -79,6 +79,19 @@ def _read_v2_registry(limit: int = 100):
     conn = sqlite3.connect(str(registry_path))
     conn.row_factory = sqlite3.Row
     
+    # Detect available columns to avoid errors on older schemas
+    col_info = conn.execute("PRAGMA table_info(processed_files)").fetchall()
+    existing_cols = {row[1] for row in col_info}
+    
+    # Migrate missing columns on the fly
+    for col, default in [("tags", "TEXT"), ("projects", "TEXT")]:
+        if col not in existing_cols:
+            try:
+                conn.execute(f"ALTER TABLE processed_files ADD COLUMN {col} {default}")
+                existing_cols.add(col)
+            except sqlite3.OperationalError:
+                pass
+    
     rows = conn.execute("""
         SELECT 
             id,

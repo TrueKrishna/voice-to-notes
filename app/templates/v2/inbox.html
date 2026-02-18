@@ -145,7 +145,7 @@ window.__filterTag = {{ filter_tag | tojson }};</script>
                             }
                             const d = document.createElement('div');
                             d.textContent = c;
-                            return '<pre style=\"white-space:pre-wrap;\">' + d.innerHTML + '</pre>';
+                            return d.innerHTML;
                         }
                     }" style="display: flex; flex-direction: column; height: 100%;">
                         
@@ -160,7 +160,7 @@ window.__filterTag = {{ filter_tag | tojson }};</script>
                                             class="text-xs" 
                                             style="background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); color: var(--accent); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-weight: 500;">
                                         <span x-text="(note?.projects && note.projects.length > 0) ? note.projects[0] : 'No Project'"></span>
-                                        <span style="margin-left: 4px;">▾</span>
+                                        <span style="margin-left: 4px;">&#9662;</span>
                                     </button>
                                     
                                     <!-- Project Dropdown -->
@@ -204,48 +204,48 @@ window.__filterTag = {{ filter_tag | tojson }};</script>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <button @click="$parent.openAudio()" 
                                         :disabled="!note?.audio_url"
-                                        :title="note?.audio_url ? 'Open audio' : 'No audio available'"
+                                        :title="note?.audio_url ? 'Play audio' : 'No audio available'"
                                         class="btn-icon"
                                         :style="!note?.audio_url ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-                                    🎧
+                                    <i data-lucide="headphones" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="$parent.openNote()" 
-                                        :title="'Open note in full view'"
+                                        title="Open note in full view"
                                         class="btn-icon">
-                                    📝
+                                    <i data-lucide="external-link" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="$parent.copyTranscript()" 
                                         :disabled="!note?.transcript"
                                         :title="note?.transcript ? 'Copy transcript' : 'No transcript available'"
                                         class="btn-icon"
                                         :style="!note?.transcript ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-                                    📋T
+                                    <i data-lucide="clipboard-copy" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="$parent.downloadTranscript()" 
                                         :disabled="!note?.transcript"
                                         :title="note?.transcript ? 'Download transcript' : 'No transcript available'"
                                         class="btn-icon"
                                         :style="!note?.transcript ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-                                    📥T
+                                    <i data-lucide="download" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="$parent.copyBreakdown()" 
                                         :disabled="!note?.content"
-                                        :title="note?.content ? 'Copy breakdown' : 'No breakdown available'"
+                                        :title="note?.content ? 'Copy summary' : 'No summary available'"
                                         class="btn-icon"
                                         :style="!note?.content ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-                                    📋B
+                                    <i data-lucide="copy" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="$parent.downloadBreakdown()" 
                                         :disabled="!note?.content"
-                                        :title="note?.content ? 'Download breakdown' : 'No breakdown available'"
+                                        :title="note?.content ? 'Download summary' : 'No summary available'"
                                         class="btn-icon"
                                         :style="!note?.content ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-                                    📥B
+                                    <i data-lucide="file-down" style="width: 15px; height: 15px;"></i>
                                 </button>
                                 <button @click="showMoreOptions = !showMoreOptions" 
                                         title="More options"
                                         class="btn-icon">
-                                    ⋯
+                                    <i data-lucide="more-horizontal" style="width: 15px; height: 15px;"></i>
                                 </button>
                             </div>
                         </div>

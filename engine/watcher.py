@@ -61,7 +61,13 @@ class FolderWatcher:
         """Hot-reload config from DB settings (if DB path is known)."""
         if self._db_path:
             try:
+                old_key_count = len(self.config.gemini_api_keys)
                 self.config = load_config_from_db(self._db_path)
+                new_key_count = len(self.config.gemini_api_keys)
+                # If keys were just added, reset files that failed due to missing keys
+                if new_key_count > 0 and old_key_count == 0:
+                    logger.info(f"API keys now available ({new_key_count}), resetting config-related failures")
+                    self.registry.reset_config_failures()
             except Exception as e:
                 logger.debug(f"Config reload skipped: {e}")
 
